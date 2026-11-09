@@ -1,18 +1,19 @@
-import { usePage } from '@inertiajs/react';
-
-import AppLogoIcon from '@/components/app-logo-icon';
-
 export default function AppLogo() {
-    const { name } = usePage().props;
-
     return (
         <>
-            <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
-                <AppLogoIcon className="size-5 fill-current text-white dark:text-black" />
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/95 p-0.5 shadow-sm ring-1 ring-white/20 group-data-[collapsible=icon]:size-8">
+                <img
+                    src="/images/zcmc.png"
+                    alt="Zamboanga City Medical Center seal"
+                    className="size-full object-contain"
+                />
             </div>
-            <div className="ml-1 grid flex-1 text-left text-sm">
-                <span className="mb-0.5 truncate leading-tight font-semibold">
-                    {name}
+            <div className="ml-1 grid flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
+                <span className="truncate text-sm font-bold tracking-wide">
+                    ZCMC
+                </span>
+                <span className="truncate text-[11px] font-medium text-sidebar-primary">
+                    Material Management
                 </span>
             </div>
         </>
