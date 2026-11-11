@@ -51,6 +51,10 @@ class HandleInertiaRequests extends Middleware
                 'permissions' => $permissions, // e.g. "po.review", for buttons and fields
                 'sections' => $sections,       // e.g. "deliveries", for the sidebar
             ],
+            // One-time message set with ->with('success', '...'); shown as a toast.
+            'flash' => [
+                'success' => fn () => $request->session()->get('success'),
+            ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

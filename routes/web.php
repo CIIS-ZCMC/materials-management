@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\UserController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/login')->name('home');
@@ -49,9 +50,18 @@ Route::middleware(['auth', 'verified'])->group(function () {
     });
 
     Route::prefix('admin')->name('admin.')->group(function () {
-        Route::inertia('users', 'admin/users/index')
-            ->middleware('can:section.users')
-            ->name('users.index');
+        // Section gate for the menu; UserPolicy enforces users.manage / roles.manage.
+        Route::middleware('can:section.users')
+            ->controller(UserController::class)
+            ->group(function () {
+                Route::get('users', 'index')->name('users.index');
+                Route::get('users/create', 'create')->name('users.create');
+                Route::post('users', 'store')->name('users.store');
+                Route::get('users/{user}/edit', 'edit')->name('users.edit');
+                Route::put('users/{user}', 'update')->name('users.update');
+                Route::patch('users/{user}/active', 'toggleActive')->name('users.active');
+                Route::put('users/{user}/password', 'resetPassword')->name('users.password');
+            });
 
         Route::inertia('audit-log', 'admin/audit-log/index')
             ->middleware('can:section.audit-log')

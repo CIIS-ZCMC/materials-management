@@ -1,7 +1,7 @@
 # PROGRESS: MMS Procurement Monitoring System
 
 Last updated: 2026-11-11
-Current step: **1.2** (Admin user management)
+Current step: **1.3** (Audit log)
 Legend: [x] done · [~] in progress · [ ] not started · [!] blocked / needs a decision
 
 How to use: attach this file and CONTEXT.md to every session. At the end of each step, the session gives an updated version. Replace this file with it.
@@ -13,7 +13,7 @@ How to use: attach this file and CONTEXT.md to every session. At the end of each
 
 ## Phase 1: App shell and access control
 - [x] 1.1 Layout, sidebar, role-based menu. Sections in `config/mms_access.php` become Gates `section.<name>`; routes use `can:section.<name>`; sidebar shows items from `auth.sections`; `auth.permissions` shared on every page; `useAccess()` hook; 11 placeholder pages. Verified: build passes, `can:` middleware on routes, sidebar matches per user, 403 on blocked URLs.
-- [ ] 1.2 User management (Admin), including job presets
+- [x] 1.2 User management (Admin), including job presets. List with search and pagination, create, edit, activate/deactivate (confirmation modal), admin-typed password reset, `UserPolicy`, `SaveUserRequest`, guards, success toasts. Verified by the user: list, edit, toasts, deactivate/activate. The guard checks below were not explicitly confirmed; recheck when convenient.
 - [ ] 1.3 Audit log
 - [ ] 1.4 Statuses, enums, and config
 
@@ -80,17 +80,31 @@ How to use: attach this file and CONTEXT.md to every session. At the end of each
 - [ ] 13.2 UMIS registry
 - [ ] 13.3 Hospital login (LDAP/SSO)
 
+## Step 1.2 checks (recheck the guards when convenient)
+1. Create an MMS Staff user with a job preset, tick/untick two permissions, save, log in as them.
+2. Creating a second user with the same employee no. shows the unique error.
+3. As Admin: cannot deactivate yourself; cannot change your own role away from Admin; cannot untick your own users.manage / roles.manage.
+4. With one active Admin left, deactivating or demoting that Admin is blocked.
+5. A user with users.manage but not roles.manage can edit details but cannot change role or permissions (403 if forced).
+
 ## Key files so far
 - Migration: `add_hospital_fields_to_users_table`; Spatie permission migration (unchanged)
-- `app/Models/User.php` (HasRoles, new fields)
+- `app/Models/User.php` (HasRoles, new fields, `filterBySearch` for the Filterable trait)
+- `app/Services/UserService.php` now holds the legacy CRUD methods (`getAllUsers`, `createUser`, `updateUser`, `deleteUser`...) AND the 1.2 methods (`paginate`, `create`, `update`, `setActive`, `resetPassword`, guards)
 - `config/mms_access.php` (permissions, role defaults, job presets, menu sections, retired names: single source of truth)
 - `database/seeders/`: `RolePermissionSeeder.php`, `DummyUserSeeder.php`, `DatabaseSeeder.php`
 - `app/Providers/FortifyServiceProvider.php` (employee-number login, inactive block), `AppServiceProvider.php` (last_login_at, section Gates)
 - `app/Http/Middleware/HandleInertiaRequests.php` (shares `auth.permissions` and `auth.sections`)
 - `config/fortify.php` (`username` = `employee_no`; `lowercase_usernames` = false; `features` empty)
-- `routes/web.php` (`/` redirects to `/login`; dashboard; 11 placeholder routes with `can:section.<name>`)
+- `routes/web.php` (`/` redirects to `/login`; dashboard; placeholder routes with `can:section.<name>`; `admin/users` routes now point to `Admin\UserController`)
+- `app/Support/MmsAccess.php` (only class that reads the shape of `config/mms_access.php` for the user screens; constants for Admin role, base role, self-keep permissions)
+- `app/Policies/UserPolicy.php`, `app/Http/Requests/Admin/SaveUserRequest.php`, `ResetUserPasswordRequest.php`
+- `app/Services/UserService.php` (create, update, setActive, resetPassword, guards), `app/Http/Controllers/Admin/UserController.php`
+- `app/Contracts/UserRepositoryInterface.php`, `app/Repositories/UserRepository.php` (`paginateForAdmin`, `countActiveWithRole`)
 - `resources/js/hooks/use-access.ts`, `resources/js/components/app-sidebar.tsx` (MMS menu), `resources/js/components/coming-soon.tsx`
-- `resources/js/pages/`: `purchase-orders`, `suppliers`, `deliveries`, `property-documents`, `dv-finance`, `reports`, `exceptions/{cancellations,replacements,delays}`, `admin/{users,audit-log}` (each `index.tsx`, placeholders)
+- `resources/js/components/admin/user-form.tsx`, `use-flash-toast.ts`, `confirm-dialog.tsx` (reusable confirmation modal; use it instead of `window.confirm`)
+- `resources/js/layouts/app-layout.tsx` mounts the single `<Toaster />`; `HandleInertiaRequests.php` shares `flash.success` (set with `->with('success', '...')`, shown by `useFlashToast()`)
+- `resources/js/pages/`: `purchase-orders`, `suppliers`, `deliveries`, `property-documents`, `dv-finance`, `reports`, `exceptions/{cancellations,replacements,delays}`, `admin/audit-log` (placeholders); `admin/users/{index,create,edit}.tsx` (real)
 - `resources/js/pages/auth/login.tsx`, `resources/js/layouts/auth/auth-simple-layout.tsx`, `public/images/zcmc.png`, `resources/css/app.css` (hides Edge reveal-password icon)
 - Settings pages still in place: `profile`, `security`, `appearance`
 
@@ -101,6 +115,8 @@ How to use: attach this file and CONTEXT.md to every session. At the end of each
 - 2026-11-11: Access model: no approval permissions; 34 permissions; MMS Staff role is a small base and each job is a preset applied as direct permissions; `cancel.finalize` covers cancellation and overdue termination; dummy users one per MMS job (DUMMY-0003 to 0005, 0008, 0009).
 - 2026-11-11: Menu and route access: sections in `config/mms_access.php` become Gates `section.<name>`; routes use `can:section.<name>`; the sidebar uses `auth.sections`. Dashboard open to all logged-in users. Reports sits at the end of Main Menu.
 - 2026-11-11: Step 1.2 design: role permissions show ticked and locked; job presets and per-person changes are direct permissions; admin types passwords (no email reset); last active Admin cannot be deactivated or demoted.
+- 2026-11-11: UI conventions set in 1.2: confirmations are modals (`ConfirmDialog`), not `confirm()`; success messages are toasts via `flash.success`; pages use plain URLs (no Wayfinder imports) and live in `resources/js/pages/...` (components in `resources/js/components/...`; mixing these folders caused a blank page once); new Inertia pages need a Vite restart.
+- 2026-11-11: Step 1.2 build choices: locked role ticks are read from the database roles (filled by `RolePermissionSeeder` from the config); a job preset REPLACES the person's direct permissions; job label in the list is derived (largest preset contained in the user's direct permissions, MMS Staff only), no new column; a user with `users.manage` but not `roles.manage` can create users only as MMS Staff with no direct permissions; direct permissions never duplicate role permissions; password reset also rotates `remember_token`.
 
 ## Open questions
 See "Assumptions to confirm" in CONTEXT.md. Includes: who generates PAR / Sub-PAR / ICS (Inventory Team built; slide 17 says PO Reviewer). No view-only suppliers permission, so only Procurement sees Suppliers. Forced password change at first login: not for now.
@@ -109,3 +125,5 @@ See "Assumptions to confirm" in CONTEXT.md. Includes: who generates PAR / Sub-PA
 - `last_login_at` is stored in UTC (Laravel default); decide the app timezone later.
 - Other kit tests in `tests/Feature/Auth` may fail because they log in with email; fix in Phase 10.1.
 - A blocked page shows Laravel's plain 403 screen; a friendlier Inertia error page can come later.
+- Deactivating a user does not end a session they already have open (login is blocked, but an existing session keeps working until it expires). Decide in 1.3 or Phase 10.
+- Step 1.2 guards (self-deactivate, own Admin role, own `users.manage`/`roles.manage`, last active Admin, unique employee no. error) were not explicitly confirmed by the user; recheck.
