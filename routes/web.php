@@ -6,6 +6,57 @@ Route::redirect('/', '/login')->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');
+
+    // Placeholder pages for the MMS menu. Each is protected on the server by
+    // its section gate (config/mms_access.php, "sections").
+    // Later steps replace Route::inertia with controllers.
+    Route::inertia('purchase-orders', 'purchase-orders/index')
+        ->middleware('can:section.purchase-orders')
+        ->name('purchase-orders.index');
+
+    Route::inertia('suppliers', 'suppliers/index')
+        ->middleware('can:section.suppliers')
+        ->name('suppliers.index');
+
+    Route::inertia('deliveries', 'deliveries/index')
+        ->middleware('can:section.deliveries')
+        ->name('deliveries.index');
+
+    Route::inertia('property-documents', 'property-documents/index')
+        ->middleware('can:section.property-documents')
+        ->name('property-documents.index');
+
+    Route::inertia('dv-finance', 'dv-finance/index')
+        ->middleware('can:section.dv-finance')
+        ->name('dv-finance.index');
+
+    Route::inertia('reports', 'reports/index')
+        ->middleware('can:section.reports')
+        ->name('reports.index');
+
+    Route::prefix('exceptions')->name('exceptions.')->group(function () {
+        Route::inertia('cancellations', 'exceptions/cancellations/index')
+            ->middleware('can:section.cancellations')
+            ->name('cancellations.index');
+
+        Route::inertia('replacements', 'exceptions/replacements/index')
+            ->middleware('can:section.replacements')
+            ->name('replacements.index');
+
+        Route::inertia('delays', 'exceptions/delays/index')
+            ->middleware('can:section.delays')
+            ->name('delays.index');
+    });
+
+    Route::prefix('admin')->name('admin.')->group(function () {
+        Route::inertia('users', 'admin/users/index')
+            ->middleware('can:section.users')
+            ->name('users.index');
+
+        Route::inertia('audit-log', 'admin/audit-log/index')
+            ->middleware('can:section.audit-log')
+            ->name('audit-log.index');
+    });
 });
 
 require __DIR__.'/settings.php';

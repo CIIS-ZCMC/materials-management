@@ -1,0 +1,111 @@
+# PROGRESS: MMS Procurement Monitoring System
+
+Last updated: 2026-11-11
+Current step: **1.2** (Admin user management)
+Legend: [x] done · [~] in progress · [ ] not started · [!] blocked / needs a decision
+
+How to use: attach this file and CONTEXT.md to every session. At the end of each step, the session gives an updated version. Replace this file with it.
+
+## Phase 0: Foundation (complete)
+- [x] 0.1 Foundation built. Starter kit, `spatie/laravel-permission`, users fields (`employee_no`, `position`, `is_active`, `last_login_at`), `RolePermissionSeeder`, `DummyUserSeeder`, employee-number login, new login page with show/hide password.
+- [x] 0.2 Foundation verified and tidied. All six checks passed. Dead auth pages, `ResetUserPassword` action, reset-password test, and `welcome.tsx` deleted. `npm run build` passes.
+- [x] 0.3 Roles and permissions aligned with the final flow. `config/mms_access.php` is the single source of truth: 34 permissions, 5 role defaults, 5 job presets, 8 retired permissions. Verified.
+
+## Phase 1: App shell and access control
+- [x] 1.1 Layout, sidebar, role-based menu. Sections in `config/mms_access.php` become Gates `section.<name>`; routes use `can:section.<name>`; sidebar shows items from `auth.sections`; `auth.permissions` shared on every page; `useAccess()` hook; 11 placeholder pages. Verified: build passes, `can:` middleware on routes, sidebar matches per user, 403 on blocked URLs.
+- [ ] 1.2 User management (Admin), including job presets
+- [ ] 1.3 Audit log
+- [ ] 1.4 Statuses, enums, and config
+
+## Phase 2: Reference data
+- [ ] 2.1 Suppliers
+- [ ] 2.2 Categories, units, item catalog (decide `catalog.manage` here)
+- [ ] 2.3 Personnel directory (dummy UMIS)
+
+## Phase 3: Part 1, PO issuance and verification
+- [ ] 3.1 PO data model and dummy POs
+- [ ] 3.2 PO list and detail shell
+- [ ] 3.3 Create/edit PO (Procurement)
+- [ ] 3.4 BizBox source structure (button disabled)
+- [ ] 3.5 Extension requests
+- [ ] 3.6 Verification and escalation
+
+## Phase 4: Documents and the consolidated PDF
+- [ ] 4.1 PDF merge spike (choose method)
+- [ ] 4.2 Upload service and documents table
+- [ ] 4.3 Consolidated PDF builder and viewer
+
+## Phase 5: Part 2, delivery, receiving, IAR
+- [ ] 5.1 IAR numbering
+- [ ] 5.2 Delivery record (Encoder)
+- [ ] 5.3 DR/OR/IAR upload and completeness gate
+
+## Phase 6: Part 3, monitoring and property documents
+- [ ] 6.1 Update delivered items (running totals)
+- [ ] 6.2 Equipment decision and property records
+- [ ] 6.3 Printable PAR / Sub-PAR / ICS
+
+## Phase 7: Part 4, DV and Finance
+- [ ] 7.1 Checklist review and MMS Head override
+- [ ] 7.2 Generate DV and IAR Transmittal
+- [ ] 7.3 Finance processing flow
+
+## Phase 8: Exception flows
+- [ ] 8.1 Flow A, cancellation
+- [ ] 8.2 Flow B, replacement
+- [ ] 8.3 Flow C, delay monitoring
+
+## Phase 9: Dashboard, archive, reports, import
+- [ ] 9.1 Dashboard widgets
+- [ ] 9.2 Archive, search, export
+- [ ] 9.3 Legacy import tool
+
+## Phase 10: Testing and hardening (before email)
+- [ ] 10.1 Automated tests for critical rules
+- [ ] 10.2 End-to-end walkthrough and MMS trial
+
+## Phase 11: Email generation and automation
+- [ ] 11.1 Mail foundation, queue, scheduler
+- [ ] 11.2 Notices (3-day, replacement, delay)
+- [ ] 11.3 Emails with attachments (COA, Legal)
+- [ ] 11.4 Scheduled jobs and reminders
+
+## Phase 12: Deployment and handoff
+- [ ] 12.1 Production readiness
+- [ ] 12.2 Handoff package
+- [ ] 12.3 Deploy with hospital IT and smoke test
+
+## Phase 13: API integrations (last)
+- [ ] 13.1 BizBox API
+- [ ] 13.2 UMIS registry
+- [ ] 13.3 Hospital login (LDAP/SSO)
+
+## Key files so far
+- Migration: `add_hospital_fields_to_users_table`; Spatie permission migration (unchanged)
+- `app/Models/User.php` (HasRoles, new fields)
+- `config/mms_access.php` (permissions, role defaults, job presets, menu sections, retired names: single source of truth)
+- `database/seeders/`: `RolePermissionSeeder.php`, `DummyUserSeeder.php`, `DatabaseSeeder.php`
+- `app/Providers/FortifyServiceProvider.php` (employee-number login, inactive block), `AppServiceProvider.php` (last_login_at, section Gates)
+- `app/Http/Middleware/HandleInertiaRequests.php` (shares `auth.permissions` and `auth.sections`)
+- `config/fortify.php` (`username` = `employee_no`; `lowercase_usernames` = false; `features` empty)
+- `routes/web.php` (`/` redirects to `/login`; dashboard; 11 placeholder routes with `can:section.<name>`)
+- `resources/js/hooks/use-access.ts`, `resources/js/components/app-sidebar.tsx` (MMS menu), `resources/js/components/coming-soon.tsx`
+- `resources/js/pages/`: `purchase-orders`, `suppliers`, `deliveries`, `property-documents`, `dv-finance`, `reports`, `exceptions/{cancellations,replacements,delays}`, `admin/{users,audit-log}` (each `index.tsx`, placeholders)
+- `resources/js/pages/auth/login.tsx`, `resources/js/layouts/auth/auth-simple-layout.tsx`, `public/images/zcmc.png`, `resources/css/app.css` (hides Edge reveal-password icon)
+- Settings pages still in place: `profile`, `security`, `appearance`
+
+## Decisions log
+- 2026-10-29: 5 roles with per-user permissions; employee-number login; skip Inertia SSR; BizBox integration deferred behind an adapter.
+- 2026-11-11: Final flow received. Schedule Term = scheduled delivery dates. "Fetch from BizBox" disabled, structure kept. One consolidated PDF per PO. Emails and automation moved to Phase 11. Supplier ownership question skipped for now. See CONTEXT.md for the full list.
+- 2026-11-11: Fortify `lowercase_usernames` turned off so employee numbers match exactly on any database collation.
+- 2026-11-11: Access model: no approval permissions; 34 permissions; MMS Staff role is a small base and each job is a preset applied as direct permissions; `cancel.finalize` covers cancellation and overdue termination; dummy users one per MMS job (DUMMY-0003 to 0005, 0008, 0009).
+- 2026-11-11: Menu and route access: sections in `config/mms_access.php` become Gates `section.<name>`; routes use `can:section.<name>`; the sidebar uses `auth.sections`. Dashboard open to all logged-in users. Reports sits at the end of Main Menu.
+- 2026-11-11: Step 1.2 design: role permissions show ticked and locked; job presets and per-person changes are direct permissions; admin types passwords (no email reset); last active Admin cannot be deactivated or demoted.
+
+## Open questions
+See "Assumptions to confirm" in CONTEXT.md. Includes: who generates PAR / Sub-PAR / ICS (Inventory Team built; slide 17 says PO Reviewer). No view-only suppliers permission, so only Procurement sees Suppliers. Forced password change at first login: not for now.
+
+## Known issues
+- `last_login_at` is stored in UTC (Laravel default); decide the app timezone later.
+- Other kit tests in `tests/Feature/Auth` may fail because they log in with email; fix in Phase 10.1.
+- A blocked page shows Laravel's plain 403 screen; a friendlier Inertia error page can come later.
