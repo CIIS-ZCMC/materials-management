@@ -1,13 +1,18 @@
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { Plus, Search } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import ConfirmDialog from '@/components/admin/confirm-dialog';
 import { useFlashToast } from '@/components/admin/use-flash-toast';
 import Heading from '@/components/heading';
+import LiveSearchInput from '@/components/live-search-input';
+import PaginationBar from '@/components/pagination-bar';
+import type { PaginationMeta } from '@/components/pagination-bar';
+import ResponsiveList from '@/components/responsive-list';
+import type { ListColumn } from '@/components/responsive-list';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { useLiveSearch } from '@/hooks/use-live-search';
 import type { Auth } from '@/types';
 
 type UserRow = {
@@ -21,16 +26,7 @@ type UserRow = {
     is_active: boolean;
 };
 
-type Paginated = {
-    data: UserRow[];
-    current_page: number;
-    last_page: number;
-    total: number;
-    from: number | null;
-    to: number | null;
-    prev_page_url: string | null;
-    next_page_url: string | null;
-};
+type Paginated = PaginationMeta & { data: UserRow[] };
 
 type Props = {
     users: Paginated;
@@ -39,23 +35,15 @@ type Props = {
 
 export default function UsersIndex({ users, filters }: Props) {
     const { auth } = usePage<{ auth: Auth }>().props;
-    const [search, setSearch] = useState(filters.search ?? '');
 
     useFlashToast();
 
-    // Debounced server-side search.
-    useEffect(() => {
-        if (search === (filters.search ?? '')) {
-            return;
-        }
-
-        const timer = setTimeout(() => {
-            router.get('/admin/users', { search }, { preserveState: true, replace: true });
-        }, 300);
-
-        return () => clearTimeout(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [search]);
+    // Live search: debounce, partial reload, cancel stale requests, URL keeps ?search=
+    const search = useLiveSearch({
+        url: '/admin/users',
+        initial: filters.search ?? '',
+        only: ['users', 'filters'],
+    });
 
     const [pendingDeactivate, setPendingDeactivate] = useState<UserRow | null>(null);
     const [processing, setProcessing] = useState(false);
@@ -84,17 +72,58 @@ export default function UsersIndex({ users, filters }: Props) {
         }
     };
 
-    const go = (url: string | null) => {
-        if (url) {
-            router.get(url, {}, { preserveState: true });
-        }
+    const columns: ListColumn<UserRow>[] = [
+        { key: 'employee_no', header: 'Employee No.', className: 'font-mono', cell: (u) => u.employee_no ?? '—' },
+        { key: 'name', header: 'Name', card: 'title', cell: (u) => u.name },
+        { key: 'position', header: 'Position', cell: (u) => u.position ?? '—' },
+        { key: 'email', header: 'Email', className: 'break-all', cell: (u) => u.email },
+        {
+            key: 'role',
+            header: 'Role',
+            card: 'summary',
+            cell: (u) => <Badge variant="secondary">{u.role ?? '—'}</Badge>,
+        },
+        {
+            key: 'job',
+            header: 'Job',
+            card: 'summary',
+            cell: (u) => u.job ?? '—',
+            cardCell: (u) => u.job, // no job: nothing shown in the card
+        },
+        {
+            key: 'status',
+            header: 'Status',
+            card: 'badge',
+            cell: (u) => <Badge variant={u.is_active ? 'default' : 'outline'}>{u.is_active ? 'Active' : 'Inactive'}</Badge>,
+        },
+    ];
+
+    const renderActions = (user: UserRow) => {
+        const self = user.id === auth.user.id;
+
+        return (
+            <>
+                <Button asChild size="sm" variant="outline">
+                    <Link href={`/admin/users/${user.id}/edit`}>Edit</Link>
+                </Button>
+                <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={self && user.is_active}
+                    title={self ? 'You cannot deactivate yourself' : undefined}
+                    onClick={() => toggleActive(user)}
+                >
+                    {user.is_active ? 'Deactivate' : 'Activate'}
+                </Button>
+            </>
+        );
     };
 
     return (
         <>
             <Head title="Users" />
 
-            <div className="space-y-6 p-4">
+            <div className="space-y-4 p-4 md:space-y-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <Heading title="Users" description="Manage MMS accounts, roles, and permissions" />
                     <Button asChild>
@@ -104,107 +133,25 @@ export default function UsersIndex({ users, filters }: Props) {
                     </Button>
                 </div>
 
-                <div className="relative max-w-sm">
-                    <Search className="absolute top-2.5 left-3 size-4 text-muted-foreground" />
-                    <Input
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search employee no., name, position, email"
-                        className="pl-9"
-                    />
-                </div>
+                <LiveSearchInput
+                    value={search.value}
+                    onChange={search.setValue}
+                    onClear={search.clear}
+                    onSubmit={search.flush}
+                    loading={search.loading}
+                    placeholder="Search employee no., name, position, email"
+                />
 
-                <div className="overflow-x-auto rounded-md border">
-                    <table className="w-full text-sm">
-                        <thead className="bg-muted/50 text-left">
-                            <tr>
-                                <th className="px-3 py-2 font-medium">Employee No.</th>
-                                <th className="px-3 py-2 font-medium">Name</th>
-                                <th className="px-3 py-2 font-medium">Position</th>
-                                <th className="px-3 py-2 font-medium">Email</th>
-                                <th className="px-3 py-2 font-medium">Role</th>
-                                <th className="px-3 py-2 font-medium">Job</th>
-                                <th className="px-3 py-2 font-medium">Status</th>
-                                <th className="px-3 py-2" />
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {users.data.length === 0 && (
-                                <tr>
-                                    <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
-                                        No users found.
-                                    </td>
-                                </tr>
-                            )}
-                            {users.data.map((user) => {
-                                const self = user.id === auth.user.id;
+                <ResponsiveList
+                    columns={columns}
+                    rows={users.data}
+                    rowKey={(u) => u.id}
+                    renderActions={renderActions}
+                    loading={search.loading}
+                    emptyMessage="No users found."
+                />
 
-                                return (
-                                    <tr key={user.id} className="border-t">
-                                        <td className="px-3 py-2 font-mono">{user.employee_no}</td>
-                                        <td className="px-3 py-2">{user.name}</td>
-                                        <td className="px-3 py-2">{user.position ?? '—'}</td>
-                                        <td className="px-3 py-2">{user.email}</td>
-                                        <td className="px-3 py-2">
-                                            <Badge variant="secondary">{user.role ?? '—'}</Badge>
-                                        </td>
-                                        <td className="px-3 py-2">{user.job ?? '—'}</td>
-                                        <td className="px-3 py-2">
-                                            <Badge variant={user.is_active ? 'default' : 'outline'}>
-                                                {user.is_active ? 'Active' : 'Inactive'}
-                                            </Badge>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <div className="flex justify-end gap-2">
-                                                <Button asChild size="sm" variant="outline">
-                                                    <Link href={`/admin/users/${user.id}/edit`}>Edit</Link>
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    disabled={self && user.is_active}
-                                                    title={self ? 'You cannot deactivate yourself' : undefined}
-                                                    onClick={() => toggleActive(user)}
-                                                >
-                                                    {user.is_active ? 'Deactivate' : 'Activate'}
-                                                </Button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
-                    <span>
-                        {users.total === 0
-                            ? '0 users'
-                            : `Showing ${users.from}–${users.to} of ${users.total}`}
-                    </span>
-                    <div className="flex items-center gap-2">
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={!users.prev_page_url}
-                            onClick={() => go(users.prev_page_url)}
-                        >
-                            Previous
-                        </Button>
-                        <span>
-                            Page {users.current_page} of {users.last_page}
-                        </span>
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={!users.next_page_url}
-                            onClick={() => go(users.next_page_url)}
-                        >
-                            Next
-                        </Button>
-                    </div>
-                </div>
+                <PaginationBar meta={users} onNavigate={search.goTo} noun="users" />
             </div>
 
             <ConfirmDialog

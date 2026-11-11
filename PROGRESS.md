@@ -14,6 +14,7 @@ How to use: attach this file and CONTEXT.md to every session. At the end of each
 ## Phase 1: App shell and access control
 - [x] 1.1 Layout, sidebar, role-based menu. Sections in `config/mms_access.php` become Gates `section.<name>`; routes use `can:section.<name>`; sidebar shows items from `auth.sections`; `auth.permissions` shared on every page; `useAccess()` hook; 11 placeholder pages. Verified: build passes, `can:` middleware on routes, sidebar matches per user, 403 on blocked URLs.
 - [x] 1.2 User management (Admin), including job presets. List with search and pagination, create, edit, activate/deactivate (confirmation modal), admin-typed password reset, `UserPolicy`, `SaveUserRequest`, guards, success toasts. Verified by the user: list, edit, toasts, deactivate/activate. The guard checks below were not explicitly confirmed; recheck when convenient.
+- [x] 1.2b Users page polish. Live search (`useLiveSearch` hook: 350 ms debounce, partial reload of `users` + `filters`, stale requests cancelled, loading dim + spinner, clear X / Escape, Enter does not reload, new search = page 1, `?search=` kept in the URL and synced on back/forward) and mobile layout (reusable `ResponsiveList`: table from `md` up, expandable cards below, no horizontal scroll). Reusable `LiveSearchInput` and `PaginationBar` added. Users page now uses all four. No PHP changes. Needs the user's test (see "Step 1.2b checks").
 - [ ] 1.3 Audit log
 - [ ] 1.4 Statuses, enums, and config
 
@@ -87,7 +88,26 @@ How to use: attach this file and CONTEXT.md to every session. At the end of each
 4. With one active Admin left, deactivating or demoting that Admin is blocked.
 5. A user with users.manage but not roles.manage can edit details but cannot change role or permissions (403 if forced).
 
+## Step 1.2b checks
+1. Type in the search box: the list filters by itself, the page does not reload, the box keeps focus and the cursor.
+2. Press Enter: nothing reloads. Press Esc or the X: the box empties and the full list returns at once.
+3. Type fast then slow: results always match the last text typed (never an older one). A spinner shows and the list dims while loading.
+4. Search something with more than one page, go to page 2, then type a new search: it returns to page 1. Next/Previous keep the search.
+5. The URL shows `?search=...`. Refresh keeps it. After Next, the browser Back button returns to the previous page with the same search.
+6. Deactivate a user (toast shows), then search: the old toast does not appear again.
+7. Phone width (F12, device toolbar, about 390 px): no horizontal scroll; tap a card to open/close it; Edit and Deactivate/Activate work inside the card; Previous/Next are large and stacked under the count.
+8. At `md` (768 px) and up the normal table is back.
+9. `npm run build` passes.
+
+## Reusing ResponsiveList on a new list page (POs, suppliers, deliveries, audit log)
+- Controller: send `{ data, current_page, last_page, total, from, to, prev_page_url, next_page_url }` and `filters: { search }` (same as `UserController@index`), with the search trimmed.
+- Page: `useLiveSearch({ url, initial: filters.search, only: ['<prop>', 'filters'] })`, then `LiveSearchInput`, `ResponsiveList` (columns with `card: 'title' | 'badge' | 'summary' | 'detail'`, optional `cardCell`, `renderActions`) and `PaginationBar onNavigate={search.goTo}`.
+
 ## Key files so far
+- `resources/js/hooks/use-live-search.ts` (reusable live, debounced, partial-reload search for Inertia list pages)
+- `resources/js/components/live-search-input.tsx` (search box with spinner, clear X, Esc; Enter never reloads)
+- `resources/js/components/responsive-list.tsx` (reusable table-on-desktop, expandable-cards-on-phone list: `ResponsiveList`, `ListColumn`)
+- `resources/js/components/pagination-bar.tsx` (reusable count + Previous/Next, stacked touch-friendly on phones: `PaginationBar`, `PaginationMeta`)
 - Migration: `add_hospital_fields_to_users_table`; Spatie permission migration (unchanged)
 - `app/Models/User.php` (HasRoles, new fields, `filterBySearch` for the Filterable trait)
 - `app/Services/UserService.php` now holds the legacy CRUD methods (`getAllUsers`, `createUser`, `updateUser`, `deleteUser`...) AND the 1.2 methods (`paginate`, `create`, `update`, `setActive`, `resetPassword`, guards)
@@ -104,7 +124,7 @@ How to use: attach this file and CONTEXT.md to every session. At the end of each
 - `resources/js/hooks/use-access.ts`, `resources/js/components/app-sidebar.tsx` (MMS menu), `resources/js/components/coming-soon.tsx`
 - `resources/js/components/admin/user-form.tsx`, `use-flash-toast.ts`, `confirm-dialog.tsx` (reusable confirmation modal; use it instead of `window.confirm`)
 - `resources/js/layouts/app-layout.tsx` mounts the single `<Toaster />`; `HandleInertiaRequests.php` shares `flash.success` (set with `->with('success', '...')`, shown by `useFlashToast()`)
-- `resources/js/pages/`: `purchase-orders`, `suppliers`, `deliveries`, `property-documents`, `dv-finance`, `reports`, `exceptions/{cancellations,replacements,delays}`, `admin/audit-log` (placeholders); `admin/users/{index,create,edit}.tsx` (real)
+- `resources/js/pages/`: `purchase-orders`, `suppliers`, `deliveries`, `property-documents`, `dv-finance`, `reports`, `exceptions/{cancellations,replacements,delays}`, `admin/audit-log` (placeholders); `admin/users/{index,create,edit}.tsx` (real; `index.tsx` uses the 1.2b components)
 - `resources/js/pages/auth/login.tsx`, `resources/js/layouts/auth/auth-simple-layout.tsx`, `public/images/zcmc.png`, `resources/css/app.css` (hides Edge reveal-password icon)
 - Settings pages still in place: `profile`, `security`, `appearance`
 
@@ -116,7 +136,9 @@ How to use: attach this file and CONTEXT.md to every session. At the end of each
 - 2026-11-11: Menu and route access: sections in `config/mms_access.php` become Gates `section.<name>`; routes use `can:section.<name>`; the sidebar uses `auth.sections`. Dashboard open to all logged-in users. Reports sits at the end of Main Menu.
 - 2026-11-11: Step 1.2 design: role permissions show ticked and locked; job presets and per-person changes are direct permissions; admin types passwords (no email reset); last active Admin cannot be deactivated or demoted.
 - 2026-11-11: UI conventions set in 1.2: confirmations are modals (`ConfirmDialog`), not `confirm()`; success messages are toasts via `flash.success`; pages use plain URLs (no Wayfinder imports) and live in `resources/js/pages/...` (components in `resources/js/components/...`; mixing these folders caused a blank page once); new Inertia pages need a Vite restart.
+- 2026-11-11: Responsive UI convention for ALL list pages (users, POs, suppliers, deliveries, audit log, ...): table from the `md` breakpoint up; below `md` each row becomes an expandable card (collapsed: main identifier, status badge, one key field; expanded: remaining fields and actions). No horizontal scrolling on phones. Search is live (debounced, server-side, no Enter, no page reload) and pagination keeps the search. Build it once as a reusable component and reuse it.
 - 2026-11-11: Step 1.2 build choices: locked role ticks are read from the database roles (filled by `RolePermissionSeeder` from the config); a job preset REPLACES the person's direct permissions; job label in the list is derived (largest preset contained in the user's direct permissions, MMS Staff only), no new column; a user with `users.manage` but not `roles.manage` can create users only as MMS Staff with no direct permissions; direct permissions never duplicate role permissions; password reset also rotates `remember_token`.
+- 2026-11-11: Step 1.2b: typing searches use `replace` (no history spam); Previous/Next push history so Back returns to the earlier page with the same search. Cards allow several open at once. Search term is trimmed in the browser and again in the controller.
 
 ## Open questions
 See "Assumptions to confirm" in CONTEXT.md. Includes: who generates PAR / Sub-PAR / ICS (Inventory Team built; slide 17 says PO Reviewer). No view-only suppliers permission, so only Procurement sees Suppliers. Forced password change at first login: not for now.
