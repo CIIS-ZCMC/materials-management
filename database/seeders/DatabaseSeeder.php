@@ -17,6 +17,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             RolePermissionSeeder::class, // roles and permissions first
             DummyUserSeeder::class,      // then users, which need those roles
+            SupplierSeeder::class,       // fake suppliers (demo data only)
         ]);
     }
 }

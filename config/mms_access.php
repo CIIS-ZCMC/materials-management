@@ -33,7 +33,8 @@ return [
         'po.review',                  // select and review a PO, verify it
         'po.escalate',                // escalate wrong PO details to the System Admin
         'extension.manage',           // record and approve a supplier extension, recalculate due date
-        'suppliers.manage',           // add and edit suppliers
+        'suppliers.view',             // see the supplier list (view only)
+        'suppliers.manage',           // add, edit and deactivate suppliers (also allows viewing)
 
         // Part 2: delivery, receiving, IAR
         'delivery.encode',            // enter Invoice #, IAR #, Fund Cluster, Amount, signatories
@@ -98,12 +99,14 @@ return [
         // Base only. The job presets below add the rest.
         'MMS Staff' => [
             'po.view',
+            'suppliers.view',
             'delay.view',
             'reports.view',
         ],
 
         'MMS Head' => [
             'po.view',
+            'suppliers.view',
             'delay.view',
             'reports.view',
             'audit.view',
@@ -112,6 +115,7 @@ return [
 
         'Finance' => [
             'po.view',
+            'suppliers.view',
             'finance.receive',
             'finance.return',
             'finance.mark-disbursed',
@@ -174,7 +178,7 @@ return [
     // The Dashboard has no section: every logged-in user can open it.
     'sections' => [
         'purchase-orders' => ['po.view'],
-        'suppliers' => ['suppliers.manage'],
+        'suppliers' => ['suppliers.view', 'suppliers.manage'],
         'deliveries' => ['delivery.encode', 'delivery.upload-docs', 'delivery.update-items'],
         'property-documents' => ['equipment.decide', 'par.generate', 'ics.generate'],
         'dv-finance' => [

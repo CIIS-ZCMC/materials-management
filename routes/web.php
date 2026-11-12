@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\SupplierController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/login')->name('home');
@@ -16,9 +17,20 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->middleware('can:section.purchase-orders')
         ->name('purchase-orders.index');
 
-    Route::inertia('suppliers', 'suppliers/index')
-        ->middleware('can:section.suppliers')
-        ->name('suppliers.index');
+    // Step 2.1: the section gate opens the menu; SupplierPolicy decides who
+    // may change data (suppliers.manage) and who may only view (suppliers.view).
+    Route::middleware('can:section.suppliers')
+        ->controller(SupplierController::class)
+        ->prefix('suppliers')
+        ->name('suppliers.')
+        ->group(function () {
+            Route::get('/', 'index')->name('index');
+            Route::get('create', 'create')->name('create');
+            Route::post('/', 'store')->name('store');
+            Route::get('{supplier}/edit', 'edit')->name('edit');
+            Route::put('{supplier}', 'update')->name('update');
+            Route::patch('{supplier}/active', 'toggleActive')->name('active');
+        });
 
     Route::inertia('deliveries', 'deliveries/index')
         ->middleware('can:section.deliveries')
