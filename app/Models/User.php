@@ -53,6 +53,15 @@ class User extends Authenticatable
     }
 
     /**
+     * Readable name for the audit log, e.g. "Juan Cruz (DUMMY-0004)".
+     * Used by App\Support\Audit.
+     */
+    public function auditLabel(): string
+    {
+        return $this->name.' ('.($this->employee_no ?: '#'.$this->id).')';
+    }
+
+    /**
      * Filter hook used by Filterable::scopeFilter (key: "search").
      * Matches employee no., name, position, and email.
      *

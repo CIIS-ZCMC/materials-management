@@ -3,7 +3,9 @@
 namespace App\Providers;
 
 use App\Contracts\UserRepositoryInterface;
+use App\Listeners\AuditAuthEvents;
 use App\Models\User;
+use App\Policies\ActivityPolicy;
 use App\Repositories\UserRepository;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Login;
@@ -13,6 +15,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Spatie\Activitylog\Models\Activity;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -35,6 +38,18 @@ class AppServiceProvider extends ServiceProvider
         $this->configureDefaults();
         $this->recordLastLogin();
         $this->registerSectionGates();
+        $this->registerAuditing();
+    }
+
+    /**
+     * Audit trail: policy for the Audit Log page (audit.view) and the
+     * login / failed login / logout listeners.
+     */
+    protected function registerAuditing(): void
+    {
+        Gate::policy(Activity::class, ActivityPolicy::class);
+
+        Event::subscribe(AuditAuthEvents::class);
     }
 
     /**

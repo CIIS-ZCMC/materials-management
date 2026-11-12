@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Contracts\UserRepositoryInterface;
 use App\Models\User;
+use App\Support\Audit;
 use App\Support\MmsAccess;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
@@ -142,9 +143,19 @@ class UserService extends BaseService
             $role = $withAccess ? ($data['role'] ?? MmsAccess::BASE_ROLE) : MmsAccess::BASE_ROLE;
             $user->syncRoles([$role]);
 
+            $direct = [];
             if ($withAccess) {
-                $user->syncPermissions($this->directOnly($role, $data['permissions'] ?? []));
+                $direct = $this->directOnly($role, $data['permissions'] ?? []);
+                $user->syncPermissions($direct);
             }
+
+            // Audit: never includes the password.
+            $new = Arr::only($data, ['employee_no', 'name', 'position', 'email']) + ['role' => $role];
+            if ($direct !== []) {
+                $new['permissions'] = $direct;
+            }
+
+            Audit::log('created', $user, "Created user {$user->auditLabel()}", new: $new, log: 'users');
 
             return $user;
         });
@@ -158,18 +169,44 @@ class UserService extends BaseService
         return DB::transaction(function () use ($actor, $target, $data, $withAccess) {
             $role = null;
             $direct = [];
+            $oldRole = $target->roles->first()?->name;
+            $oldDirect = $target->permissions->pluck('name')->all();
 
             if ($withAccess) {
-                $role = $data['role'] ?? $target->roles->first()?->name ?? MmsAccess::BASE_ROLE;
+                $role = $data['role'] ?? $oldRole ?? MmsAccess::BASE_ROLE;
                 $direct = $this->directOnly($role, $data['permissions'] ?? []);
                 $this->guardAccessChange($actor, $target, $role, $direct);
             }
 
-            $target->update(Arr::only($data, ['employee_no', 'name', 'position', 'email']));
+            $target->fill(Arr::only($data, ['employee_no', 'name', 'position', 'email']));
+            $new = $target->getDirty();
+            $old = Arr::only($target->getOriginal(), array_keys($new));
+            $target->save();
+
+            if ($new !== []) {
+                Audit::log('updated', $target, "Edited user {$target->auditLabel()}", old: $old, new: $new, causer: $actor, log: 'users');
+            }
 
             if ($withAccess && $role !== null) {
                 $target->syncRoles([$role]);
                 $target->syncPermissions($direct);
+
+                $added = array_values(array_diff($direct, $oldDirect));
+                $removed = array_values(array_diff($oldDirect, $direct));
+                $roleChanged = $oldRole !== $role;
+
+                if ($roleChanged || $added !== [] || $removed !== []) {
+                    Audit::log(
+                        event: 'access_changed',
+                        subject: $target,
+                        description: "Changed access of {$target->auditLabel()}",
+                        old: $roleChanged ? ['role' => $oldRole] : [],
+                        new: $roleChanged ? ['role' => $role] : [],
+                        extra: ['permissions_added' => $added, 'permissions_removed' => $removed],
+                        causer: $actor,
+                        log: 'users',
+                    );
+                }
             }
 
             return $target;
@@ -189,16 +226,43 @@ class UserService extends BaseService
                 }
             }
 
-            $target->update(['is_active' => $active]);
+            if ($target->is_active === $active) {
+                return; // nothing changes, nothing to log
+            }
+
+            $target->forceFill(['is_active' => $active]);
+
+            if (! $active) {
+                // Also invalidates any "remember me" cookie; EnsureUserIsActive
+                // ends sessions that are already open.
+                $target->forceFill(['remember_token' => Str::random(60)]);
+            }
+
+            $target->save();
+
+            Audit::log(
+                event: $active ? 'activated' : 'deactivated',
+                subject: $target,
+                description: ($active ? 'Activated' : 'Deactivated')." user {$target->auditLabel()}",
+                old: ['status' => $active ? 'Inactive' : 'Active'],
+                new: ['status' => $active ? 'Active' : 'Inactive'],
+                causer: $actor,
+                log: 'users',
+            );
         });
     }
 
     public function resetPassword(User $target, string $password): void
     {
-        $target->forceFill([
-            'password' => $password, // hashed by the model cast
-            'remember_token' => Str::random(60),
-        ])->save();
+        DB::transaction(function () use ($target, $password) {
+            $target->forceFill([
+                'password' => $password, // hashed by the model cast
+                'remember_token' => Str::random(60),
+            ])->save();
+
+            // The password itself is never logged.
+            Audit::log('password_reset', $target, "Reset password of {$target->auditLabel()}", log: 'users');
+        });
     }
 
     /**

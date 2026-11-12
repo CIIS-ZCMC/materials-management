@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -63,7 +64,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
                 Route::put('users/{user}/password', 'resetPassword')->name('users.password');
             });
 
-        Route::inertia('audit-log', 'admin/audit-log/index')
+        // Section gate for the menu; ActivityPolicy enforces audit.view.
+        Route::get('audit-log', [AuditLogController::class, 'index'])
             ->middleware('can:section.audit-log')
             ->name('audit-log.index');
     });

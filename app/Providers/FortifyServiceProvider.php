@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\User;
+use App\Support\Audit;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -47,6 +48,9 @@ class FortifyServiceProvider extends ServiceProvider
             }
 
             if (! $user->is_active) {
+                // Correct password, but the account is off: record the attempt.
+                Audit::log('login_blocked', $user, "Login blocked: {$user->auditLabel()} is deactivated", log: 'auth');
+
                 throw ValidationException::withMessages([
                     'employee_no' => 'This account is deactivated. Please contact the administrator.',
                 ]);
