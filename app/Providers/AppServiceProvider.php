@@ -2,12 +2,18 @@
 
 namespace App\Providers;
 
+use App\Contracts\ItemCategoryRepositoryInterface;
+use App\Contracts\ItemRepositoryInterface;
 use App\Contracts\SupplierRepositoryInterface;
+use App\Contracts\UnitRepositoryInterface;
 use App\Contracts\UserRepositoryInterface;
 use App\Listeners\AuditAuthEvents;
 use App\Models\User;
 use App\Policies\ActivityPolicy;
+use App\Repositories\ItemCategoryRepository;
+use App\Repositories\ItemRepository;
 use App\Repositories\SupplierRepository;
+use App\Repositories\UnitRepository;
 use App\Repositories\UserRepository;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Login;
@@ -34,6 +40,21 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(
             SupplierRepositoryInterface::class,
             SupplierRepository::class,
+        );
+
+        $this->app->bind(
+            ItemCategoryRepositoryInterface::class,
+            ItemCategoryRepository::class,
+        );
+
+        $this->app->bind(
+            UnitRepositoryInterface::class,
+            UnitRepository::class,
+        );
+
+        $this->app->bind(
+            ItemRepositoryInterface::class,
+            ItemRepository::class,
         );
     }
 

@@ -2,7 +2,10 @@
 
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\ItemCategoryController;
+use App\Http\Controllers\ItemController;
 use App\Http\Controllers\SupplierController;
+use App\Http\Controllers\UnitController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/login')->name('home');
@@ -30,6 +33,50 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::get('{supplier}/edit', 'edit')->name('edit');
             Route::put('{supplier}', 'update')->name('update');
             Route::patch('{supplier}/active', 'toggleActive')->name('active');
+        });
+
+    // Step 2.2: item catalog. One section gate ("catalog") opens the three pages;
+    // the policies decide who may change data (catalog.manage) and who may only view
+    // (catalog.view). Names: catalog.items.*, catalog.categories.*, catalog.units.*
+    Route::prefix('catalog')
+        ->name('catalog.')
+        ->middleware('can:section.catalog')
+        ->group(function () {
+            Route::controller(ItemController::class)
+                ->prefix('items')
+                ->name('items.')
+                ->group(function () {
+                    Route::get('/', 'index')->name('index');
+                    Route::get('create', 'create')->name('create');
+                    Route::post('/', 'store')->name('store');
+                    Route::get('{item}/edit', 'edit')->name('edit');
+                    Route::put('{item}', 'update')->name('update');
+                    Route::patch('{item}/active', 'toggleActive')->name('active');
+                });
+
+            Route::controller(ItemCategoryController::class)
+                ->prefix('categories')
+                ->name('categories.')
+                ->group(function () {
+                    Route::get('/', 'index')->name('index');
+                    Route::get('create', 'create')->name('create');
+                    Route::post('/', 'store')->name('store');
+                    Route::get('{category}/edit', 'edit')->name('edit');
+                    Route::put('{category}', 'update')->name('update');
+                    Route::patch('{category}/active', 'toggleActive')->name('active');
+                });
+
+            Route::controller(UnitController::class)
+                ->prefix('units')
+                ->name('units.')
+                ->group(function () {
+                    Route::get('/', 'index')->name('index');
+                    Route::get('create', 'create')->name('create');
+                    Route::post('/', 'store')->name('store');
+                    Route::get('{unit}/edit', 'edit')->name('edit');
+                    Route::put('{unit}', 'update')->name('update');
+                    Route::patch('{unit}/active', 'toggleActive')->name('active');
+                });
         });
 
     Route::inertia('deliveries', 'deliveries/index')

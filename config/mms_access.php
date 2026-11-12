@@ -36,6 +36,10 @@ return [
         'suppliers.view',             // see the supplier list (view only)
         'suppliers.manage',           // add, edit and deactivate suppliers (also allows viewing)
 
+        // Reference data: item catalog (categories, units, items)
+        'catalog.view',               // see categories, units and items (view only)
+        'catalog.manage',             // add, edit and deactivate categories, units and items (also allows viewing)
+
         // Part 2: delivery, receiving, IAR
         'delivery.encode',            // enter Invoice #, IAR #, Fund Cluster, Amount, signatories
         'delivery.upload-docs',       // upload DR, OR, IAR
@@ -93,6 +97,7 @@ return [
             'po.edit',
             'po.upload-files',
             'suppliers.manage',
+            'catalog.manage',
             'documents.void',
         ],
 
@@ -100,6 +105,7 @@ return [
         'MMS Staff' => [
             'po.view',
             'suppliers.view',
+            'catalog.view',
             'delay.view',
             'reports.view',
         ],
@@ -107,6 +113,7 @@ return [
         'MMS Head' => [
             'po.view',
             'suppliers.view',
+            'catalog.view',
             'delay.view',
             'reports.view',
             'audit.view',
@@ -116,6 +123,7 @@ return [
         'Finance' => [
             'po.view',
             'suppliers.view',
+            'catalog.view',
             'finance.receive',
             'finance.return',
             'finance.mark-disbursed',
@@ -179,6 +187,7 @@ return [
     'sections' => [
         'purchase-orders' => ['po.view'],
         'suppliers' => ['suppliers.view', 'suppliers.manage'],
+        'catalog' => ['catalog.view', 'catalog.manage'],
         'deliveries' => ['delivery.encode', 'delivery.upload-docs', 'delivery.update-items'],
         'property-documents' => ['equipment.decide', 'par.generate', 'ics.generate'],
         'dv-finance' => [

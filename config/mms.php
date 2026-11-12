@@ -93,6 +93,9 @@ return [
         'subject_types' => [
             \App\Models\User::class => 'User',
             \App\Models\Supplier::class => 'Supplier',
+            \App\Models\ItemCategory::class => 'Item category',
+            \App\Models\Unit::class => 'Unit',
+            \App\Models\Item::class => 'Item',
         ],
 
         'fields' => [
@@ -104,6 +107,10 @@ return [
             'address' => 'Address',
             'role' => 'Role',
             'permissions' => 'Direct permissions',
+            'category' => 'Category',
+            'unit' => 'Unit',
+            'code' => 'Short code',
+            'is_equipment' => 'Equipment category',
             'status' => 'Status',
         ],
 

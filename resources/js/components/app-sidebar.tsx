@@ -1,6 +1,7 @@
 import { Link } from '@inertiajs/react';
 import {
     Ban,
+    Boxes,
     Building2,
     ClipboardList,
     Clock,
@@ -8,8 +9,10 @@ import {
     LayoutGrid,
     Package,
     RefreshCw,
+    Ruler,
     ScrollText,
     Settings,
+    Tags,
     Truck,
     Users,
     Wallet,
@@ -29,6 +32,9 @@ import {
 } from '@/components/ui/sidebar';
 import { useAccess } from '@/hooks/use-access';
 import { dashboard } from '@/routes';
+import { index as catalogCategories } from '@/routes/catalog/categories';
+import { index as catalogItems } from '@/routes/catalog/items';
+import { index as catalogUnits } from '@/routes/catalog/units';
 import { index as deliveries } from '@/routes/deliveries';
 import { index as dvFinance } from '@/routes/dv-finance';
 import { index as auditLog } from '@/routes/admin/audit-log';
@@ -55,6 +61,12 @@ const mainNavItems: MmsNavItem[] = [
     { title: 'Property Documents', href: propertyDocuments(), icon: Package, section: 'property-documents' },
     { title: 'DV and Finance', href: dvFinance(), icon: Wallet, section: 'dv-finance' },
     { title: 'Reports', href: reports(), icon: FileText, section: 'reports' },
+];
+
+const catalogNavItems: MmsNavItem[] = [
+    { title: 'Items', href: catalogItems(), icon: Boxes, section: 'catalog' },
+    { title: 'Categories', href: catalogCategories(), icon: Tags, section: 'catalog' },
+    { title: 'Units', href: catalogUnits(), icon: Ruler, section: 'catalog' },
 ];
 
 const exceptionNavItems: MmsNavItem[] = [
@@ -84,6 +96,7 @@ export function AppSidebar() {
         items.filter((item) => !item.section || canAccess(item.section));
 
     const main = visible(mainNavItems);
+    const catalog = visible(catalogNavItems);
     const exceptions = visible(exceptionNavItems);
     const admin = visible(adminNavItems);
 
@@ -109,6 +122,9 @@ export function AppSidebar() {
 
             <SidebarContent>
                 <NavMain items={main} label="Main Menu" />
+                {catalog.length > 0 && (
+                    <NavMain items={catalog} label="Catalog" />
+                )}
                 {exceptions.length > 0 && (
                     <NavMain items={exceptions} label="Exceptions" />
                 )}

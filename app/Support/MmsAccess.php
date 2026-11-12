@@ -25,6 +25,7 @@ class MmsAccess
         'po' => 'Purchase Orders',
         'extension' => 'Extensions',
         'suppliers' => 'Suppliers',
+        'catalog' => 'Catalog',
         'delivery' => 'Deliveries',
         'documents' => 'Documents',
         'equipment' => 'Equipment',
