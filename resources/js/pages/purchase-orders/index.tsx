@@ -1,5 +1,5 @@
 import { Head, Link } from '@inertiajs/react';
-import { ArrowDown, ArrowUp } from 'lucide-react';
+import { ArrowDown, ArrowUp, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import Heading from '@/components/heading';
 import LiveSearchInput from '@/components/live-search-input';
@@ -11,6 +11,7 @@ import ResponsiveList from '@/components/responsive-list';
 import type { ListColumn } from '@/components/responsive-list';
 import { Button } from '@/components/ui/button';
 import { useLiveSearch } from '@/hooks/use-live-search';
+import { useAccess } from '@/hooks/use-access';
 
 type PoRow = {
     id: number;
@@ -68,6 +69,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOptions, supplierOptions }: Props) {
+    const { can } = useAccess();
     const isDefaultSort = filters.sort === DEFAULT_SORT && filters.direction === DEFAULT_DIRECTION;
 
     // The search box plus every other filter. `params` are the values the server applied;
@@ -152,22 +154,32 @@ export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOpt
             <Head title="Purchase Orders" />
 
             <div className="space-y-4 p-4 md:space-y-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                     <Heading title="Purchase Orders" description="All purchase orders and where they stand" />
 
-                    {/* Active / Closed toggle */}
-                    <div className="inline-flex rounded-md border p-0.5" role="group" aria-label="Show">
-                        {(['active', 'closed'] as const).map((v) => (
-                            <Button
-                                key={v}
-                                size="sm"
-                                variant={filters.view === v ? 'default' : 'ghost'}
-                                aria-pressed={filters.view === v}
-                                onClick={() => search.apply({ view: v === 'closed' ? 'closed' : '' })}
-                            >
-                                {v === 'active' ? 'Active' : 'Closed'}
+                    <div className="flex flex-wrap items-center gap-2">
+                        {can('po.create') && (
+                            <Button asChild size="sm">
+                                <Link href="/purchase-orders/create">
+                                    <Plus className="size-4" /> New PO
+                                </Link>
                             </Button>
-                        ))}
+                        )}
+
+                        {/* Active / Closed toggle */}
+                        <div className="inline-flex rounded-md border p-0.5" role="group" aria-label="Show">
+                            {(['active', 'closed'] as const).map((v) => (
+                                <Button
+                                    key={v}
+                                    size="sm"
+                                    variant={filters.view === v ? 'default' : 'ghost'}
+                                    aria-pressed={filters.view === v}
+                                    onClick={() => search.apply({ view: v === 'closed' ? 'closed' : '' })}
+                                >
+                                    {v === 'active' ? 'Active' : 'Closed'}
+                                </Button>
+                            ))}
+                        </div>
                     </div>
                 </div>
 

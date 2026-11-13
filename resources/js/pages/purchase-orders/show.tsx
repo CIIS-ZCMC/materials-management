@@ -1,5 +1,5 @@
 import { Head, Link } from '@inertiajs/react';
-import { ArrowLeft, FileText, History, Truck } from 'lucide-react';
+import { ArrowLeft, FileText, History, Pencil, Truck } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { ComingSoon } from '@/components/coming-soon';
 import Heading from '@/components/heading';
@@ -48,6 +48,7 @@ type PurchaseOrder = {
     total: string;
     schedules: string[];
     extensions: ExtensionRow[];
+    edit: { allowed: boolean; reason: string | null };
 };
 
 type Props = { purchaseOrder: PurchaseOrder };
@@ -112,10 +113,21 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                     </Link>
                 </Button>
 
-                <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
                     <Heading title={po.po_number} description={po.supplier} />
-                    <PoStatusBadge status={po.status} />
+                    <div className="flex flex-wrap items-center gap-2">
+                        {po.edit.allowed && (
+                            <Button asChild size="sm">
+                                <Link href={`/purchase-orders/${po.id}/edit`}>
+                                    <Pencil className="size-4" /> Edit
+                                </Link>
+                            </Button>
+                        )}
+                        <PoStatusBadge status={po.status} />
+                    </div>
                 </div>
+
+                {po.edit.reason && <p className="text-sm text-muted-foreground">{po.edit.reason}</p>}
 
                 {/* Tabs: plain buttons, they wrap on a phone instead of scrolling sideways */}
                 <div role="tablist" className="flex flex-wrap gap-1 border-b pb-2">

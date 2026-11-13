@@ -3,6 +3,7 @@
 namespace App\Repositories;
 
 use App\Contracts\PurchaseOrderRepositoryInterface;
+use App\Models\Item;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -115,6 +116,105 @@ class PurchaseOrderRepository extends BaseRepository implements PurchaseOrderRep
             'schedules',
             'extensions.approver:id,name',
         ]);
+    }
+
+    public function loadForEdit(PurchaseOrder $purchaseOrder): PurchaseOrder
+    {
+        return $purchaseOrder->load([
+            'supplier:id,name',
+            'items' => fn ($query) => $query->orderBy('id'),
+            'items.item:id,name,is_active',
+            'items.category:id,name',
+            'items.unit:id,name',
+            'schedules',
+            'extensions:id,purchase_order_id,extra_days',
+        ]);
+    }
+
+    public function findLocked(int $id): PurchaseOrder
+    {
+        return $this->model->newQuery()
+            ->whereKey($id)
+            ->lockForUpdate()
+            ->firstOrFail()
+            ->load([
+                'supplier:id,name',
+                'items' => fn ($query) => $query->orderBy('id'),
+                'items.item:id,name',
+                'items.category:id,name',
+                'items.unit:id,name',
+                'schedules',
+            ]);
+    }
+
+    /**
+     * @return Collection<int, Supplier>
+     */
+    public function supplierChoices(?int $keepSupplierId = null): Collection
+    {
+        return Supplier::query()
+            ->where(function ($query) use ($keepSupplierId) {
+                $query->where('is_active', true);
+
+                if ($keepSupplierId !== null) {
+                    $query->orWhere('id', $keepSupplierId);
+                }
+            })
+            ->orderBy('name')
+            ->get(['id', 'name', 'is_active']);
+    }
+
+    /**
+     * Active items for the picker, never more than $limit rows (fast with thousands of items).
+     * Empty term: the first $limit active items, alphabetical.
+     * With a term: "starts with" first (it can use the name index), then "contains" to fill the rest.
+     *
+     * @return Collection<int, Item>
+     */
+    public function searchActiveItems(string $term, int $limit = 10): Collection
+    {
+        $base = fn () => Item::query()
+            ->where('is_active', true)
+            ->with(['category:id,name', 'unit:id,name'])
+            ->orderBy('name')
+            ->orderBy('id');
+
+        if ($term === '') {
+            return $base()->limit($limit)->get()->values();
+        }
+
+        $escaped = addcslashes($term, '%_\\');
+
+        $found = $base()->where('name', 'like', $escaped.'%')->limit($limit)->get();
+
+        if ($found->count() < $limit) {
+            $more = $base()
+                ->where('name', 'like', '%'.$escaped.'%')
+                ->whereNotIn('id', $found->pluck('id'))
+                ->limit($limit - $found->count())
+                ->get();
+
+            $found = $found->concat($more);
+        }
+
+        return $found->values();
+    }
+
+    /**
+     * @param  list<int>  $ids
+     * @return Collection<int, Item>
+     */
+    public function catalogItemsByIds(array $ids): Collection
+    {
+        if ($ids === []) {
+            return collect();
+        }
+
+        return Item::query()
+            ->whereIn('id', $ids)
+            ->with(['category:id,name', 'unit:id,name'])
+            ->get()
+            ->keyBy('id');
     }
 
     /**

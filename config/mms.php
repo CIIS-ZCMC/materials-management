@@ -114,6 +114,14 @@ return [
             'code' => 'Short code',
             'is_equipment' => 'Equipment category',
             'status' => 'Status',
+            'po_number' => 'PO number',
+            'supplier' => 'Supplier',
+            'po_date' => 'PO date',
+            'emailed_date' => 'Emailed date',
+            'delivery_term_days' => 'Delivery term (days)',
+            'due_date' => 'Due date',
+            'items' => 'Items',
+            'schedule' => 'Schedule dates',
         ],
 
         'events' => [

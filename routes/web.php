@@ -14,15 +14,21 @@ Route::redirect('/', '/login')->name('home');
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');
 
-    // Step 3.2: PO list and detail (read only). The section gate opens the pages;
-    // PurchaseOrderPolicy checks po.view. Later steps add create/edit/verify routes here.
+    // Steps 3.2 and 3.3: PO list, detail, create and edit. The section gate opens the pages;
+    // PurchaseOrderPolicy checks po.view / po.create / po.edit (and the status rule for edits).
+    // 'item-search' and 'create' must stay above the {purchaseOrder} routes.
     Route::middleware('can:section.purchase-orders')
         ->controller(PurchaseOrderController::class)
         ->prefix('purchase-orders')
         ->name('purchase-orders.')
         ->group(function () {
             Route::get('/', 'index')->name('index');
+            Route::get('create', 'create')->name('create');
+            Route::post('/', 'store')->name('store');
+            Route::get('item-search', 'itemSearch')->name('item-search');
             Route::get('{purchaseOrder}', 'show')->whereNumber('purchaseOrder')->name('show');
+            Route::get('{purchaseOrder}/edit', 'edit')->whereNumber('purchaseOrder')->name('edit');
+            Route::put('{purchaseOrder}', 'update')->whereNumber('purchaseOrder')->name('update');
         });
 
     // Step 2.1: the section gate opens the menu; SupplierPolicy decides who
