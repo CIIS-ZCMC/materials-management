@@ -10,9 +10,31 @@ type Options = {
     only: string[];
     /** Debounce in milliseconds. */
     delay?: number;
+    /**
+     * Other query values the page currently uses (status, dates, sort...), as strings.
+     * They travel with every search so typing never loses a filter. Empty values are left out of the URL.
+     */
+    params?: Record<string, string>;
 };
 
 type VisitOptions = { replace: boolean; preserveScroll: boolean };
+
+/** Builds the query data: the search term (if any) plus every non-empty param. */
+function buildData(term: string, params: Record<string, string>): Record<string, string> {
+    const data: Record<string, string> = {};
+
+    if (term) {
+        data.search = term;
+    }
+
+    for (const [key, value] of Object.entries(params)) {
+        if (value) {
+            data[key] = value;
+        }
+    }
+
+    return data;
+}
 
 /**
  * Live, debounced, server-side search for Inertia list pages.
@@ -23,8 +45,9 @@ type VisitOptions = { replace: boolean; preserveScroll: boolean };
  *   overwrite a newer one. `loading` turns off only when the NEWEST request ends.
  * - A new search has no `page` in its URL, so it always lands on page 1.
  * - The URL keeps `?search=...`. The back/forward buttons put the term back in the input.
+ * - Pages with filters pass them as `params` and change them with `apply({ status: 'verified' })`.
  */
-export function useLiveSearch({ url, initial, only, delay = 350 }: Options) {
+export function useLiveSearch({ url, initial, only, delay = 350, params = {} }: Options) {
     const [value, setValue] = useState(initial);
     const [loading, setLoading] = useState(false);
 
@@ -37,6 +60,14 @@ export function useLiveSearch({ url, initial, only, delay = 350 }: Options) {
 
     // An array literal changes identity on every render, so depend on its content.
     const onlyKey = only.join(',');
+    const paramsKey = JSON.stringify(params);
+
+    // Latest params, readable inside callbacks without recreating them.
+    const paramsRef = useRef<Record<string, string>>(params);
+
+    useEffect(() => {
+        paramsRef.current = JSON.parse(paramsKey) as Record<string, string>;
+    }, [paramsKey]);
 
     const clearTimer = useCallback(() => {
         if (timer.current) {
@@ -75,7 +106,7 @@ export function useLiveSearch({ url, initial, only, delay = 350 }: Options) {
     const run = useCallback(
         (term: string) => {
             lastSent.current = term;
-            visit(url, term ? { search: term } : {}, { replace: true, preserveScroll: true });
+            visit(url, buildData(term, paramsRef.current), { replace: true, preserveScroll: true });
         },
         [url, visit],
     );
@@ -129,7 +160,22 @@ export function useLiveSearch({ url, initial, only, delay = 350 }: Options) {
         }
     }, [run, clearTimer]);
 
-    /** Previous/Next. The paginator URL already carries ?search=..., so the search is kept. */
+    /**
+     * Change one or more filter values now (a select, a date, the Active/Closed toggle, a sort click).
+     * Keeps the typed search, drops `page` (so it lands on page 1) and updates the URL.
+     */
+    const apply = useCallback(
+        (changes: Record<string, string>) => {
+            clearTimer();
+            const term = value.trim();
+            lastSent.current = term;
+            paramsRef.current = { ...paramsRef.current, ...changes };
+            visit(url, buildData(term, paramsRef.current), { replace: true, preserveScroll: true });
+        },
+        [value, url, visit, clearTimer],
+    );
+
+    /** Previous/Next. The paginator URL already carries every query value, so nothing is lost. */
     const goTo = useCallback(
         (href: string | null) => {
             if (href) {
@@ -139,5 +185,5 @@ export function useLiveSearch({ url, initial, only, delay = 350 }: Options) {
         [visit],
     );
 
-    return { value, setValue, loading, flush, clear, goTo };
+    return { value, setValue, loading, flush, clear, apply, goTo };
 }

@@ -23,9 +23,10 @@
 | delivery.extension_counting  How an approved extension counts days. The
 |                   flowchart says "working calendar days only", which is
 |                   ambiguous; read as "working" for now, holidays to confirm.
+|                   Both counting settings are used only by App\Support\DueDate.
 | uploads.*         Limits for uploaded documents (see the note on PHP limits).
 | audit.subject_types  Model class => label shown in the Audit Log filter.
-|                   Later steps add PurchaseOrder, Delivery, etc. here.
+|                   Later steps add Delivery, etc. here.
 | audit.fields      Property key => label for the "what changed" column.
 | audit.events      Event name => label.
 |
@@ -96,6 +97,7 @@ return [
             \App\Models\ItemCategory::class => 'Item category',
             \App\Models\Unit::class => 'Unit',
             \App\Models\Item::class => 'Item',
+            \App\Models\PurchaseOrder::class => 'Purchase order',
         ],
 
         'fields' => [

@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\ItemCategoryController;
 use App\Http\Controllers\ItemController;
+use App\Http\Controllers\PurchaseOrderController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\UnitController;
 use Illuminate\Support\Facades\Route;
@@ -13,12 +14,16 @@ Route::redirect('/', '/login')->name('home');
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');
 
-    // Placeholder pages for the MMS menu. Each is protected on the server by
-    // its section gate (config/mms_access.php, "sections").
-    // Later steps replace Route::inertia with controllers.
-    Route::inertia('purchase-orders', 'purchase-orders/index')
-        ->middleware('can:section.purchase-orders')
-        ->name('purchase-orders.index');
+    // Step 3.2: PO list and detail (read only). The section gate opens the pages;
+    // PurchaseOrderPolicy checks po.view. Later steps add create/edit/verify routes here.
+    Route::middleware('can:section.purchase-orders')
+        ->controller(PurchaseOrderController::class)
+        ->prefix('purchase-orders')
+        ->name('purchase-orders.')
+        ->group(function () {
+            Route::get('/', 'index')->name('index');
+            Route::get('{purchaseOrder}', 'show')->whereNumber('purchaseOrder')->name('show');
+        });
 
     // Step 2.1: the section gate opens the menu; SupplierPolicy decides who
     // may change data (suppliers.manage) and who may only view (suppliers.view).

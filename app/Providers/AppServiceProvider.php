@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Contracts\ItemCategoryRepositoryInterface;
 use App\Contracts\ItemRepositoryInterface;
+use App\Contracts\PurchaseOrderRepositoryInterface;
 use App\Contracts\SupplierRepositoryInterface;
 use App\Contracts\UnitRepositoryInterface;
 use App\Contracts\UserRepositoryInterface;
@@ -12,6 +13,7 @@ use App\Models\User;
 use App\Policies\ActivityPolicy;
 use App\Repositories\ItemCategoryRepository;
 use App\Repositories\ItemRepository;
+use App\Repositories\PurchaseOrderRepository;
 use App\Repositories\SupplierRepository;
 use App\Repositories\UnitRepository;
 use App\Repositories\UserRepository;
@@ -55,6 +57,11 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(
             ItemRepositoryInterface::class,
             ItemRepository::class,
+        );
+
+        $this->app->bind(
+            PurchaseOrderRepositoryInterface::class,
+            PurchaseOrderRepository::class,
         );
     }
 

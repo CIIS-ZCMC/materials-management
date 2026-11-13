@@ -1,4 +1,4 @@
-import { ChevronDown } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
@@ -22,7 +22,11 @@ export type ListColumn<T> = {
     card?: CardRole;
     /** Extra classes for the table cell (e.g. 'font-mono'). */
     className?: string;
+    /** Makes the table header clickable (needs `onSort` on the list). The column `key` is the sort key. */
+    sortable?: boolean;
 };
+
+export type ListSort = { key: string; direction: 'asc' | 'desc' };
 
 type Props<T> = {
     columns: ListColumn<T>[];
@@ -33,9 +37,22 @@ type Props<T> = {
     /** Dims the list while a search/page request is running. */
     loading?: boolean;
     emptyMessage?: string;
+    /** The sort the server applied (shows the arrow on that header). */
+    sort?: ListSort;
+    /** Called with the column key when a sortable header is clicked. */
+    onSort?: (key: string) => void;
 };
 
-export default function ResponsiveList<T>({ columns, rows, rowKey, renderActions, loading = false, emptyMessage = 'Nothing found.' }: Props<T>) {
+export default function ResponsiveList<T>({
+    columns,
+    rows,
+    rowKey,
+    renderActions,
+    loading = false,
+    emptyMessage = 'Nothing found.',
+    sort,
+    onSort,
+}: Props<T>) {
     const [open, setOpen] = useState<Set<string | number>>(new Set());
 
     const toggle = (key: string | number, next: boolean) =>
@@ -59,6 +76,22 @@ export default function ResponsiveList<T>({ columns, rows, rowKey, renderActions
     const cardValue = (c: ListColumn<T>, row: T) => (c.cardCell ? c.cardCell(row) : c.cell(row));
     const hasValue = (v: ReactNode) => v !== null && v !== undefined && v !== false && v !== '';
 
+    const ariaSort = (c: ListColumn<T>) => {
+        if (!c.sortable || !onSort || sort?.key !== c.key) {
+            return undefined;
+        }
+
+        return sort.direction === 'asc' ? 'ascending' : 'descending';
+    };
+
+    const sortIcon = (c: ListColumn<T>) => {
+        if (sort?.key !== c.key) {
+            return <ArrowUpDown className="size-3.5 opacity-40" />;
+        }
+
+        return sort.direction === 'asc' ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />;
+    };
+
     return (
         <div aria-busy={loading} className={cn('transition-opacity', loading && 'opacity-60')}>
             {/* md and up: table */}
@@ -67,8 +100,19 @@ export default function ResponsiveList<T>({ columns, rows, rowKey, renderActions
                     <thead className="bg-muted/50 text-left">
                         <tr>
                             {columns.map((c) => (
-                                <th key={c.key} className="px-3 py-2 font-medium">
-                                    {c.header}
+                                <th key={c.key} className="px-3 py-2 font-medium" aria-sort={ariaSort(c)}>
+                                    {c.sortable && onSort ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => onSort(c.key)}
+                                            className="-mx-1 inline-flex items-center gap-1 rounded px-1 hover:text-foreground"
+                                        >
+                                            {c.header}
+                                            {sortIcon(c)}
+                                        </button>
+                                    ) : (
+                                        c.header
+                                    )}
                                 </th>
                             ))}
                             {renderActions && <th className="px-3 py-2" />}
