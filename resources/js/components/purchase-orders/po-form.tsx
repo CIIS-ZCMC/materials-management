@@ -226,6 +226,10 @@ function LinkedItem({ line }: { line: FormLine }) {
     );
 }
 
+// BizBox is not connected yet (step 3.4). Phase 13 will replace this constant with a value
+// from the server and give the button an onClick. While false, the button and its box stay disabled.
+const BIZBOX_FETCH_AVAILABLE: boolean = false;
+
 export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOrder }: Props) {
     // useForm keeps every field (including the rows) in one object and sends it on submit.
     const [initial] = useState(() => buildInitial(purchaseOrder));
@@ -297,20 +301,43 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOr
                 </div>
             )}
 
-            {mode === 'create' && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle>How is this PO made?</CardTitle>
+                        {mode === 'create' && (
+                <Card className="gap-3 py-4">
+                    <CardHeader className="gap-0.5">
+                        <CardTitle className="text-base">How is this PO made?</CardTitle>
                         <CardDescription>Step 1 of the flow.</CardDescription>
                     </CardHeader>
-                    <CardContent className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-md border-2 border-primary bg-primary/5 p-3">
-                            <p className="font-medium">Create PO in the system</p>
-                            <p className="text-sm text-muted-foreground">Fill in the form below.</p>
+                    <CardContent className="grid items-start gap-3 sm:grid-cols-2">
+                        <div className="flex items-center gap-3 rounded-md border-2 border-primary bg-primary/5 px-3 py-2.5">
+                            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                                <Check className="size-3" aria-hidden />
+                            </span>
+                            <div className="min-w-0">
+                                <p className="text-sm font-medium">Create PO in the system</p>
+                                <p className="text-xs text-muted-foreground">Fill in the form below.</p>
+                            </div>
                         </div>
-                        <div aria-disabled="true" className="rounded-md border p-3 opacity-60">
-                            <p className="font-medium">Post directly in BizBox</p>
-                            <p className="text-sm text-muted-foreground">Not yet available</p>
+
+                        <div aria-disabled="true" className="space-y-2 rounded-md border border-dashed px-3 py-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                                <p className="text-sm font-medium text-muted-foreground">Post directly in BizBox</p>
+                                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Not yet available</span>
+                            </div>
+                            <div className="flex gap-2">
+                                <Input
+                                    id="bizbox_reference"
+                                    aria-label="BizBox PO number"
+                                    disabled={!BIZBOX_FETCH_AVAILABLE}
+                                    placeholder="BizBox PO number"
+                                    className="h-8 min-w-0 flex-1 text-sm"
+                                />
+                                <span title={BIZBOX_FETCH_AVAILABLE ? undefined : 'Not yet available'} className="inline-block">
+                                    <Button type="button" size="sm" variant="outline" disabled={!BIZBOX_FETCH_AVAILABLE}>
+                                        Fetch from BizBox
+                                    </Button>
+                                </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">BizBox is not connected yet. Use the form below.</p>
                         </div>
                     </CardContent>
                 </Card>

@@ -25,6 +25,12 @@
 |                   ambiguous; read as "working" for now, holidays to confirm.
 |                   Both counting settings are used only by App\Support\DueDate.
 | uploads.*         Limits for uploaded documents (see the note on PHP limits).
+| bizbox.enabled    BIZBOX_ENABLED in .env (default false). false = the app uses
+|                   LocalPurchaseOrderProvider (our own database) and the BizBox
+|                   provider is never created. true = the BizBox provider is used;
+|                   today that is only a stub that throws "BizBox is not configured",
+|                   so leave it false until Phase 13. After changing .env:
+|                   php artisan config:clear
 | audit.subject_types  Model class => label shown in the Audit Log filter.
 |                   Later steps add Delivery, etc. here.
 | audit.fields      Property key => label for the "what changed" column.
@@ -88,6 +94,11 @@ return [
     'uploads' => [
         'max_size_kb' => (int) env('MMS_MAX_UPLOAD_KB', 10240), // 10 MB per file
         'allowed_extensions' => ['pdf'],
+    ],
+
+        'bizbox' => [
+        // Read the shared switch as a real boolean ("false" in .env must mean false).
+        'enabled' => filter_var(env('BIZBOX_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
     'audit' => [

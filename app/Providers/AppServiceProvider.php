@@ -4,10 +4,13 @@ namespace App\Providers;
 
 use App\Contracts\ItemCategoryRepositoryInterface;
 use App\Contracts\ItemRepositoryInterface;
+use App\Contracts\PurchaseOrderProvider;
 use App\Contracts\PurchaseOrderRepositoryInterface;
 use App\Contracts\SupplierRepositoryInterface;
 use App\Contracts\UnitRepositoryInterface;
 use App\Contracts\UserRepositoryInterface;
+use App\Integrations\PurchaseOrders\BizBoxPurchaseOrderProvider;
+use App\Integrations\PurchaseOrders\LocalPurchaseOrderProvider;
 use App\Listeners\AuditAuthEvents;
 use App\Models\User;
 use App\Policies\ActivityPolicy;
@@ -62,6 +65,16 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(
             PurchaseOrderRepositoryInterface::class,
             PurchaseOrderRepository::class,
+        );
+
+        // Step 3.4: where PO details come from. The BizBox provider is created
+        // only when BIZBOX_ENABLED is true (config mms.bizbox.enabled).
+        // bind() (not singleton) so the flag is read each time it is resolved.
+        $this->app->bind(
+            PurchaseOrderProvider::class,
+            fn () => config('mms.bizbox.enabled')
+                ? new BizBoxPurchaseOrderProvider
+                : new LocalPurchaseOrderProvider,
         );
     }
 
