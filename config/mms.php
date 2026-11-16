@@ -24,6 +24,9 @@
 |                   flowchart says "working calendar days only", which is
 |                   ambiguous; read as "working" for now, holidays to confirm.
 |                   Both counting settings are used only by App\Support\DueDate.
+| delivery.extension_max_days  The most days one extension may add (step 3.5,
+|                   MMS_EXTENSION_MAX_DAYS in .env, default 90). A second
+|                   extension may be recorded later; each one is capped.
 | uploads.*         Limits for uploaded documents (see the note on PHP limits).
 | bizbox.enabled    BIZBOX_ENABLED in .env (default false). false = the app uses
 |                   LocalPurchaseOrderProvider (our own database) and the BizBox
@@ -78,6 +81,9 @@ return [
 
         // Flowchart: extensions count "working calendar days only".
         'extension_counting' => env('MMS_EXTENSION_COUNTING', 'working'),
+
+        // Step 3.5: the most days a single extension may add.
+        'extension_max_days' => (int) env('MMS_EXTENSION_MAX_DAYS', 90),
     ],
 
     /*
@@ -96,7 +102,7 @@ return [
         'allowed_extensions' => ['pdf'],
     ],
 
-        'bizbox' => [
+    'bizbox' => [
         // Read the shared switch as a real boolean ("false" in .env must mean false).
         'enabled' => filter_var(env('BIZBOX_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
     ],
@@ -133,6 +139,7 @@ return [
             'due_date' => 'Due date',
             'items' => 'Items',
             'schedule' => 'Schedule dates',
+            'extension' => 'Extension',
         ],
 
         'events' => [
@@ -143,6 +150,7 @@ return [
             'password_reset' => 'Password reset',
             'access_changed' => 'Access changed',
             'status_changed' => 'Status changed',
+            'extension_recorded' => 'Extension recorded',
             'login' => 'Login',
             'login_failed' => 'Failed login',
             'login_blocked' => 'Login blocked',

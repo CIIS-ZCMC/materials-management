@@ -4,6 +4,7 @@ namespace App\Policies;
 
 use App\Models\PurchaseOrder;
 use App\Models\User;
+use App\Support\ExtensionRule;
 use App\Support\PoEditRule;
 use Illuminate\Auth\Access\Response;
 
@@ -11,6 +12,7 @@ use Illuminate\Auth\Access\Response;
  * po.view          see the PO list and a PO's details
  * po.create        create a PO in the system
  * po.edit          edit a PO, only while PoEditRule allows it (draft, uploaded, escalated)
+ * extension.manage record an extension, only while ExtensionRule allows it (verified, not closed, has a due date)
  * Auto-discovered: App\Models\PurchaseOrder -> App\Policies\PurchaseOrderPolicy.
  */
 class PurchaseOrderPolicy
@@ -38,6 +40,18 @@ class PurchaseOrderPolicy
         }
 
         $reason = PoEditRule::blockReason($purchaseOrder);
+
+        return $reason === null ? Response::allow() : Response::deny($reason);
+    }
+
+    /** Record an extension (not an edit: PoEditRule does not apply). Drives the "Record extension" button. */
+    public function extend(User $actor, PurchaseOrder $purchaseOrder): Response
+    {
+        if (! $actor->can('extension.manage')) {
+            return Response::deny();
+        }
+
+        $reason = ExtensionRule::blockReason($purchaseOrder);
 
         return $reason === null ? Response::allow() : Response::deny($reason);
     }

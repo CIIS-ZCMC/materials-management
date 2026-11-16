@@ -29,6 +29,10 @@ export default defineConfig({
         }),
     ]),
     server: {
+        host: '0.0.0.0',
+        hmr: {
+            host: '10.10.175.89', // Must match your current IP4 in the ipconfig
+        },
         watch: {
             ignored: [
                 '**/.agents/**',

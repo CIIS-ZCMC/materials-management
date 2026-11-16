@@ -144,6 +144,8 @@ class PurchaseOrderService
     public function create(array $data): PurchaseOrder
     {
         return DB::transaction(function () use ($data) {
+            $this->assertDatesFitQuantity($data);
+
             $po = new PurchaseOrder(Arr::only($data, self::HEADER_FIELDS));
             $po->recalculateDueDate();
             $po->save();
@@ -189,6 +191,8 @@ class PurchaseOrderService
             if (($reason = PoEditRule::blockReason($po)) !== null) {
                 throw ValidationException::withMessages(['form' => $reason]);
             }
+
+            $this->assertDatesFitQuantity($data);
 
             $oldHeader = $this->header($po);
             $oldLines = $this->lineSnapshots($po->items);
@@ -435,6 +439,29 @@ class PurchaseOrderService
     private function linesSummary(int $count, int $totalCents): string
     {
         return $count.' '.($count === 1 ? 'line' : 'lines').', '.Money::php($totalCents);
+    }
+
+        /**
+     * Every schedule date delivers at least one unit, so a PO cannot have more
+     * dates than units ordered (sum of quantity_ordered over all lines).
+     *
+     * @param  array<string, mixed>  $data  validated input
+     *
+     * @throws ValidationException
+     */
+    private function assertDatesFitQuantity(array $data): void
+    {
+        $dates = collect($data['schedule_dates'] ?? [])->filter(fn ($date) => filled($date))->unique()->count();
+        $units = (int) collect($data['items'] ?? [])->sum(fn ($line) => (int) ($line['quantity_ordered'] ?? 0));
+
+        if ($dates > $units) {
+            $dateWord = $dates === 1 ? 'date' : 'dates';
+            $unitWord = $units === 1 ? 'unit' : 'units';
+
+            throw ValidationException::withMessages([
+                'schedule_dates' => "{$dates} delivery {$dateWord} for {$units} {$unitWord} ordered. A PO can have at most one date per unit ordered. Remove dates or increase the quantity.",
+            ]);
+        }
     }
 
     /** Returns the date if it is a real Y-m-d date, otherwise an empty string. */

@@ -6,6 +6,7 @@ import Heading from '@/components/heading';
 import OverdueBadgeSlot from '@/components/purchase-orders/overdue-badge-slot';
 import { formatPhp, orDash } from '@/components/purchase-orders/po-format';
 import PoStatusBadge from '@/components/purchase-orders/po-status-badge';
+import RecordExtensionDialog from '@/components/purchase-orders/record-extension-dialog';
 import ResponsiveList from '@/components/responsive-list';
 import type { ListColumn } from '@/components/responsive-list';
 import { Badge } from '@/components/ui/badge';
@@ -49,6 +50,7 @@ type PurchaseOrder = {
     schedules: string[];
     extensions: ExtensionRow[];
     edit: { allowed: boolean; reason: string | null };
+    extension: { allowed: boolean; reason: string | null; max_days: number; counting: string };
 };
 
 type Props = { purchaseOrder: PurchaseOrder };
@@ -89,13 +91,14 @@ const itemColumns: ListColumn<ItemRow>[] = [
     { key: 'line_total', header: 'Line total', card: 'badge', className: 'font-medium tabular-nums', cell: (i) => formatPhp(i.line_total) },
 ];
 
+// An extension is recorded and approved by the same person in one step, so one column covers both.
 const extensionColumns: ListColumn<ExtensionRow>[] = [
     { key: 'extra_days', header: 'Days added', card: 'title', cell: (e) => `+${e.extra_days} ${e.extra_days === 1 ? 'day' : 'days'}` },
     { key: 'reason', header: 'Reason', card: 'summary', cell: (e) => e.reason },
     { key: 'old_due_date', header: 'Old due date', className: 'tabular-nums', cell: (e) => e.old_due_date },
     { key: 'new_due_date', header: 'New due date', className: 'tabular-nums', cell: (e) => e.new_due_date },
-    { key: 'approved_by', header: 'Approved by', cell: (e) => orDash(e.approved_by) },
-    { key: 'approved_at', header: 'Approved on', cell: (e) => e.approved_at },
+    { key: 'approved_by', header: 'Recorded by', cell: (e) => orDash(e.approved_by) },
+    { key: 'approved_at', header: 'Recorded on', cell: (e) => e.approved_at },
 ];
 
 export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
@@ -113,7 +116,7 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                     </Link>
                 </Button>
 
-                                <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                     <Heading title={po.po_number} description={po.supplier} />
                     <div className="flex flex-wrap items-center gap-2">
                         {po.edit.allowed && (
@@ -196,7 +199,20 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                         </section>
 
                         <section className="space-y-2">
-                            <h3 className="text-base font-medium">Extension history</h3>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <h3 className="text-base font-medium">Extension history</h3>
+                                {/* Only people with extension.manage get the button, and only while the PO may be extended. */}
+                                {po.extension.allowed && (
+                                    <RecordExtensionDialog
+                                        poId={po.id}
+                                        poNumber={po.po_number}
+                                        dueDate={po.due_date}
+                                        counting={po.extension.counting}
+                                        maxDays={po.extension.max_days}
+                                    />
+                                )}
+                            </div>
+                            {po.extension.reason && <p className="text-sm text-muted-foreground">{po.extension.reason}</p>}
                             <ResponsiveList
                                 columns={extensionColumns}
                                 rows={po.extensions}

@@ -241,6 +241,11 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOr
     const dueDate = previewDueDate(form.data.emailed_date, form.data.delivery_term_days, dueDateRules, extensionDays);
     const totalCents = form.data.items.reduce((sum, line) => sum + lineCents(line), 0);
 
+    // Rule: every delivery date delivers at least one unit, so dates can never outnumber the units ordered.
+    const totalQuantity = form.data.items.reduce((sum, line) => sum + (parseInt(line.quantity_ordered, 10) || 0), 0);
+    const dateCount = new Set(form.data.schedule_dates.filter((d) => d !== '')).size;
+    const tooManyDates = dateCount > totalQuantity;
+
     // Rows are plain array items: to change one, copy the array with that row replaced.
     const updateLine = (index: number, patch: Partial<FormLine>) =>
         form.setData(
@@ -424,48 +429,7 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOr
                 </CardContent>
             </Card>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>Schedule Term</CardTitle>
-                    <CardDescription>The dates the supplier is expected to deliver (for example one date per batch). Optional.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                    {form.data.schedule_dates.length === 0 && <p className="text-sm text-muted-foreground">No scheduled dates.</p>}
 
-                    {form.data.schedule_dates.map((date, index) => (
-                        <div key={index} className="grid gap-1">
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="date"
-                                    aria-label={`Scheduled date ${index + 1}`}
-                                    className={`${control} max-w-48`}
-                                    value={date}
-                                    onChange={(e) => updateDate(index, e.target.value)}
-                                />
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    aria-label={`Remove scheduled date ${index + 1}`}
-                                    onClick={() =>
-                                        form.setData(
-                                            'schedule_dates',
-                                            form.data.schedule_dates.filter((_, i) => i !== index),
-                                        )
-                                    }
-                                >
-                                    <Trash2 className="size-4" />
-                                </Button>
-                            </div>
-                            <InputError message={errors[`schedule_dates.${index}`]} />
-                        </div>
-                    ))}
-
-                    <Button type="button" variant="outline" size="sm" onClick={() => form.setData('schedule_dates', [...form.data.schedule_dates, ''])}>
-                        <Plus className="size-4" /> Add date
-                    </Button>
-                </CardContent>
-            </Card>
 
             <Card>
                 <CardHeader>
@@ -572,8 +536,68 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOr
                 </CardContent>
             </Card>
 
+                        <Card>
+                <CardHeader>
+                    <CardTitle>Schedule Term</CardTitle>
+                    <CardDescription>
+                        The dates the supplier is expected to deliver the items above (for example one date per batch). Optional. There can be no more dates than
+                        units ordered.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                    {form.data.schedule_dates.length === 0 && <p className="text-sm text-muted-foreground">No scheduled dates.</p>}
+
+                    {form.data.schedule_dates.map((date, index) => (
+                        <div key={index} className="grid gap-1">
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="date"
+                                    aria-label={`Scheduled date ${index + 1}`}
+                                    className={`${control} max-w-48`}
+                                    value={date}
+                                    onChange={(e) => updateDate(index, e.target.value)}
+                                />
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    aria-label={`Remove scheduled date ${index + 1}`}
+                                    onClick={() =>
+                                        form.setData(
+                                            'schedule_dates',
+                                            form.data.schedule_dates.filter((_, i) => i !== index),
+                                        )
+                                    }
+                                >
+                                    <Trash2 className="size-4" />
+                                </Button>
+                            </div>
+                            <InputError message={errors[`schedule_dates.${index}`]} />
+                        </div>
+                    ))}
+
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={form.data.schedule_dates.length >= totalQuantity}
+                        onClick={() => form.setData('schedule_dates', [...form.data.schedule_dates, ''])}
+                    >
+                        <Plus className="size-4" /> Add date
+                    </Button>
+
+                    <p className={`text-sm ${tooManyDates ? 'text-destructive' : 'text-muted-foreground'}`}>
+                        {totalQuantity === 0
+                            ? 'Add items first. The number of dates cannot be more than the total quantity ordered.'
+                            : `${dateCount} ${dateCount === 1 ? 'date' : 'dates'} for ${totalQuantity} ${totalQuantity === 1 ? 'unit' : 'units'} ordered (at most ${totalQuantity}).`}
+                        {tooManyDates && ' Remove dates or increase the quantity to save.'}
+                    </p>
+                    <InputError message={errors.schedule_dates} />
+                </CardContent>
+            </Card>
+
             <div className="flex items-center gap-3">
-                <Button type="submit" disabled={form.processing}>
+                    <Button type="submit" disabled={form.processing || tooManyDates}>
                     {mode === 'create' ? 'Create PO' : 'Save changes'}
                 </Button>
                 <Button variant="outline" asChild>

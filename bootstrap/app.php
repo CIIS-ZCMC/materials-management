@@ -16,6 +16,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
+        
+        // Add this line to trust your local network IP
+        $middleware->trustHosts(at: ['10.10.175.89', 'localhost', '127.0.0.1']);
 
         $middleware->web(append: [
             HandleAppearance::class,

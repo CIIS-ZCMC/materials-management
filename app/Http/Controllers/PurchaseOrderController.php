@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Enums\PurchaseOrderSource;
 use App\Enums\PurchaseOrderStatus;
+use App\Http\Requests\RecordExtensionRequest;
 use App\Http\Requests\SavePurchaseOrderRequest;
 use App\Models\PoExtension;
 use App\Models\PoItem;
 use App\Models\PurchaseOrder;
+use App\Services\PoExtensionService;
 use App\Services\PurchaseOrderService;
 use App\Support\DisplayTime;
 use App\Support\Money;
@@ -20,7 +22,10 @@ use Inertia\Response;
 
 class PurchaseOrderController extends Controller
 {
-    public function __construct(private readonly PurchaseOrderService $service) {}
+    public function __construct(
+        private readonly PurchaseOrderService $service,
+        private readonly PoExtensionService $extensions,
+    ) {}
 
     public function index(Request $request): Response
     {
@@ -96,6 +101,20 @@ class PurchaseOrderController extends Controller
         $po = $this->service->update($purchaseOrder, $request->validated());
 
         return $this->saved($po, "Purchase order {$po->po_number} saved.");
+    }
+
+    /**
+     * Records an approved extension (step 3.5). The Form Request checks extension.manage (403);
+     * the Service checks the PO rules under a row lock (error "form" on the page).
+     */
+    public function storeExtension(RecordExtensionRequest $request, PurchaseOrder $purchaseOrder): RedirectResponse
+    {
+        $extension = $this->extensions->recordExtension($purchaseOrder, $request->user(), $request->validated());
+
+        return $this->saved(
+            $purchaseOrder,
+            "Extension recorded for PO {$purchaseOrder->po_number}. New due date: {$extension->new_due_date->toDateString()}.",
+        );
     }
 
     /**
@@ -200,6 +219,7 @@ class PurchaseOrderController extends Controller
                 'approved_at' => DisplayTime::format($e->approved_at),
             ])->values(),
             'edit' => $this->editInfo($po),
+            'extension' => $this->extensionInfo($po),
         ];
     }
 
@@ -218,6 +238,34 @@ class PurchaseOrderController extends Controller
         $result = Gate::inspect('update', $po);
 
         return ['allowed' => $result->allowed(), 'reason' => $result->allowed() ? null : $result->message()];
+    }
+
+    /**
+     * Drives the "Record extension" button (Schedule tab). The reason is shown only to
+     * people who hold extension.manage. max_days and counting feed the modal's hints.
+     *
+     * @return array{allowed: bool, reason: string|null, max_days: int, counting: string}
+     */
+    private function extensionInfo(PurchaseOrder $po): array
+    {
+        $info = [
+            'allowed' => false,
+            'reason' => null,
+            'max_days' => (int) config('mms.delivery.extension_max_days'),
+            'counting' => (string) config('mms.delivery.extension_counting'),
+        ];
+
+        if (! request()->user()?->can('extension.manage')) {
+            return $info;
+        }
+
+        $result = Gate::inspect('extend', $po);
+
+        return [
+            ...$info,
+            'allowed' => $result->allowed(),
+            'reason' => $result->allowed() ? null : $result->message(),
+        ];
     }
 
     /**
