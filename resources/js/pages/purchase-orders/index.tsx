@@ -21,6 +21,8 @@ type PoRow = {
     due_date: string | null;
     po_date: string | null;
     items_count: number;
+    // Latest escalation remarks; only escalated POs have it (null when none were recorded).
+    escalation: { reason: string | null; by: string | null; at: string } | null;
 };
 
 type Paginated = PaginationMeta & { data: PoRow[] };
@@ -41,6 +43,7 @@ type Props = {
     filters: Filters;
     statusOptions: { value: string; label: string }[];
     supplierOptions: { id: number; name: string; is_active: boolean }[];
+    escalatedCount: number;
 };
 
 const DEFAULT_SORT = 'due_date';
@@ -68,7 +71,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
     );
 }
 
-export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOptions, supplierOptions }: Props) {
+export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOptions, supplierOptions, escalatedCount }: Props) {
     const { can } = useAccess();
     const isDefaultSort = filters.sort === DEFAULT_SORT && filters.direction === DEFAULT_DIRECTION;
 
@@ -88,6 +91,9 @@ export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOpt
             direction: isDefaultSort ? '' : filters.direction,
         },
     });
+
+    // The Admin queue is the list filtered to status "escalated" (no separate menu item).
+    const showingEscalated = filters.status === 'escalated';
 
     const hasFilters = filters.status !== '' || filters.supplier !== '' || filters.from !== '' || filters.to !== '';
 
@@ -143,6 +149,26 @@ export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOpt
         { key: 'items', header: 'Items', sortable: true, className: 'tabular-nums', cell: (p) => p.items_count },
     ];
 
+    // In the escalated queue the remarks are the point, so they get their own column (and a card line on phones).
+    if (showingEscalated) {
+        columns.push({
+            key: 'remarks',
+            header: 'Escalation remarks',
+            card: 'summary',
+            cell: (p) =>
+                p.escalation ? (
+                    <div className="max-w-md space-y-0.5">
+                        <p className="break-words">{p.escalation.reason ?? 'No remarks recorded'}</p>
+                        <p className="text-xs text-muted-foreground">
+                            {p.escalation.by ?? 'Unknown user'} · {p.escalation.at}
+                        </p>
+                    </div>
+                ) : (
+                    <span className="text-muted-foreground">No remarks recorded</span>
+                ),
+        });
+    }
+
     const renderActions = (po: PoRow) => (
         <Button asChild size="sm" variant="outline">
             <Link href={`/purchase-orders/${po.id}`}>View</Link>
@@ -154,7 +180,7 @@ export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOpt
             <Head title="Purchase Orders" />
 
             <div className="space-y-4 p-4 md:space-y-6">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                     <Heading title="Purchase Orders" description="All purchase orders and where they stand" />
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -181,6 +207,28 @@ export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOpt
                             ))}
                         </div>
                     </div>
+                </div>
+
+                {/* Quick tabs. "Escalated" is the Admin's queue: POs the Reviewer sent for fixing, with their remarks. */}
+                <div role="tablist" aria-label="Queue" className="flex flex-wrap gap-1 border-b pb-2">
+                    <Button
+                        role="tab"
+                        aria-selected={!showingEscalated}
+                        size="sm"
+                        variant={!showingEscalated ? 'default' : 'ghost'}
+                        onClick={() => search.apply({ status: '' })}
+                    >
+                        All POs
+                    </Button>
+                    <Button
+                        role="tab"
+                        aria-selected={showingEscalated}
+                        size="sm"
+                        variant={showingEscalated ? 'default' : 'ghost'}
+                        onClick={() => search.apply({ status: 'escalated', view: '' })}
+                    >
+                        Escalated to Admin ({escalatedCount})
+                    </Button>
                 </div>
 
                 <LiveSearchInput

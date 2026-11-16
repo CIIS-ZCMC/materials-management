@@ -2,11 +2,13 @@
 
 namespace App\Contracts;
 
+use App\Enums\PurchaseOrderStatus;
 use App\Models\Item;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * @extends BaseRepositoryInterface<PurchaseOrder>
@@ -77,4 +79,32 @@ interface PurchaseOrderRepositoryInterface extends BaseRepositoryInterface
      * @return Collection<int, Item>
      */
     public function catalogItemsByIds(array $ids): Collection;
+
+    /**
+     * Audit rows for the History tab: this PO's rows in log "po", plus every status change
+     * of this PO (also those written to another log). Newest first, at most $limit.
+     *
+     * @return Collection<int, Activity>
+     */
+    public function history(PurchaseOrder $purchaseOrder, int $limit = 200): Collection;
+
+    /**
+     * The latest "status changed to Escalated to Admin" audit row of each given PO,
+     * keyed by PO id. POs without such a row (for example seeded ones) are missing.
+     *
+     * @param  list<int>  $poIds
+     * @return Collection<int, Activity>
+     */
+    public function latestEscalationActivities(array $poIds): Collection;
+
+    /**
+     * Names of users by id, for the "who" column of the audit rows.
+     *
+     * @param  list<int>  $userIds
+     * @return array<int, string>
+     */
+    public function userNames(array $userIds): array;
+
+    /** How many POs currently have this stored status. */
+    public function countWithStatus(PurchaseOrderStatus $status): int;
 }

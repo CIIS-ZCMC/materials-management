@@ -3,11 +3,15 @@
 namespace App\Repositories;
 
 use App\Contracts\PurchaseOrderRepositoryInterface;
+use App\Enums\PurchaseOrderStatus;
 use App\Models\Item;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
+use App\Models\User;
+use App\Support\AuditEntry;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * @extends BaseRepository<PurchaseOrder>
@@ -215,6 +219,79 @@ class PurchaseOrderRepository extends BaseRepository implements PurchaseOrderRep
             ->with(['category:id,name', 'unit:id,name'])
             ->get()
             ->keyBy('id');
+    }
+
+    /**
+     * @return Collection<int, Activity>
+     */
+    public function history(PurchaseOrder $purchaseOrder, int $limit = 200): Collection
+    {
+        return Activity::query()
+            ->where('subject_type', $purchaseOrder->getMorphClass())
+            ->where('subject_id', $purchaseOrder->getKey())
+            ->where(function ($query) {
+                $query->where('log_name', 'po')->orWhere('event', 'status_changed');
+            })
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get();
+    }
+
+    /**
+     * @param  list<int>  $poIds
+     * @return Collection<int, Activity>
+     */
+    public function latestEscalationActivities(array $poIds): Collection
+    {
+        if ($poIds === []) {
+            return collect();
+        }
+
+        $escalated = PurchaseOrderStatus::Escalated->label();
+
+        // One query for the whole page (at most one page of POs). Newest first, so the first
+        // matching row per PO is its latest escalation.
+        $rows = Activity::query()
+            ->where('subject_type', $this->model->getMorphClass())
+            ->whereIn('subject_id', $poIds)
+            ->where('event', 'status_changed')
+            ->orderByDesc('id')
+            ->get();
+
+        $found = collect();
+
+        foreach ($rows as $row) {
+            $poId = (int) $row->subject_id;
+
+            if ($found->has($poId)) {
+                continue;
+            }
+
+            if ((AuditEntry::properties($row)['new']['status'] ?? null) === $escalated) {
+                $found->put($poId, $row);
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * @param  list<int>  $userIds
+     * @return array<int, string>
+     */
+    public function userNames(array $userIds): array
+    {
+        if ($userIds === []) {
+            return [];
+        }
+
+        return User::query()->whereIn('id', $userIds)->pluck('name', 'id')->all();
+    }
+
+    public function countWithStatus(PurchaseOrderStatus $status): int
+    {
+        return $this->model->newQuery()->where('status', $status->value)->count();
     }
 
     /**

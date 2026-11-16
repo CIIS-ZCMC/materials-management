@@ -4,12 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Enums\PurchaseOrderSource;
 use App\Enums\PurchaseOrderStatus;
+use App\Http\Requests\EscalatePurchaseOrderRequest;
 use App\Http\Requests\RecordExtensionRequest;
 use App\Http\Requests\SavePurchaseOrderRequest;
+use App\Http\Requests\SendBackPurchaseOrderRequest;
+use App\Http\Requests\VerifyPurchaseOrderRequest;
 use App\Models\PoExtension;
 use App\Models\PoItem;
 use App\Models\PurchaseOrder;
 use App\Services\PoExtensionService;
+use App\Services\PoHistoryService;
+use App\Services\PoReviewService;
 use App\Services\PurchaseOrderService;
 use App\Support\DisplayTime;
 use App\Support\Money;
@@ -25,6 +30,8 @@ class PurchaseOrderController extends Controller
     public function __construct(
         private readonly PurchaseOrderService $service,
         private readonly PoExtensionService $extensions,
+        private readonly PoReviewService $reviews,
+        private readonly PoHistoryService $history,
     ) {}
 
     public function index(Request $request): Response
@@ -34,10 +41,20 @@ class PurchaseOrderController extends Controller
         $filters = $this->service->cleanFilters($request->query());
         $paginator = $this->service->paginate($filters);
 
+        // The Admin queue: escalated POs show their remarks. One audit query for the whole page.
+        $escalations = $this->history->latestEscalations(
+            $paginator->getCollection()
+                ->filter(fn (PurchaseOrder $po) => $po->status === PurchaseOrderStatus::Escalated)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->values()
+                ->all(),
+        );
+
         return Inertia::render('purchase-orders/index', [
             'purchaseOrders' => [
                 'data' => $paginator->getCollection()
-                    ->map(fn (PurchaseOrder $po) => $this->row($po))
+                    ->map(fn (PurchaseOrder $po) => $this->row($po, $escalations[$po->id] ?? null))
                     ->values(),
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),
@@ -54,6 +71,8 @@ class PurchaseOrderController extends Controller
                 ->all(),
             // A closure: only loaded on the first visit, not on every keystroke (partial reloads skip it).
             'supplierOptions' => fn () => $this->service->supplierOptions(),
+            // Number on the "Escalated" tab. A closure too: typing in the search box skips it.
+            'escalatedCount' => fn () => $this->reviews->escalatedCount(),
         ]);
     }
 
@@ -118,6 +137,38 @@ class PurchaseOrderController extends Controller
     }
 
     /**
+     * Step 3.6: the PO Reviewer verifies an uploaded PO. The Form Request checks po.review (403);
+     * the Service checks the PO rules under a row lock (error "form" on the page).
+     */
+    public function verify(VerifyPurchaseOrderRequest $request, PurchaseOrder $purchaseOrder): RedirectResponse
+    {
+        $po = $this->reviews->verify($purchaseOrder, $request->user());
+
+        return $this->saved(
+            $po,
+            $po->due_date === null
+                ? "PO {$po->po_number} verified. It has no due date."
+                : "PO {$po->po_number} verified.",
+        );
+    }
+
+    /** Step 3.6: the PO Reviewer escalates an uploaded PO to the Admin with remarks (po.escalate). */
+    public function escalate(EscalatePurchaseOrderRequest $request, PurchaseOrder $purchaseOrder): RedirectResponse
+    {
+        $po = $this->reviews->escalate($purchaseOrder, $request->user(), $request->validated('reason'));
+
+        return $this->saved($po, "PO {$po->po_number} escalated to the Admin.");
+    }
+
+    /** Step 3.6: the Admin (po.edit) sends a fixed, escalated PO back to the Reviewer with a note. */
+    public function sendBack(SendBackPurchaseOrderRequest $request, PurchaseOrder $purchaseOrder): RedirectResponse
+    {
+        $po = $this->reviews->sendBack($purchaseOrder, $request->user(), $request->validated('reason'));
+
+        return $this->saved($po, "PO {$po->po_number} sent back to the Reviewer.");
+    }
+
+    /**
      * Small JSON endpoint for the item picker (active items only, at most 10).
      * An empty or missing q returns the first 10 active items, alphabetical, so the
      * dropdown has something to show before the user types.
@@ -155,9 +206,10 @@ class PurchaseOrderController extends Controller
     }
 
     /**
+     * @param  array{reason: string|null, by: string|null, at: string}|null  $escalation
      * @return array<string, mixed>
      */
-    private function row(PurchaseOrder $po): array
+    private function row(PurchaseOrder $po, ?array $escalation = null): array
     {
         return [
             'id' => $po->id,
@@ -167,6 +219,8 @@ class PurchaseOrderController extends Controller
             'due_date' => $po->due_date?->toDateString(),
             'po_date' => $po->po_date?->toDateString(),
             'items_count' => (int) $po->items_count,
+            // Latest escalation remarks (escalated POs only; null when none were recorded).
+            'escalation' => $escalation,
         ];
     }
 
@@ -220,6 +274,9 @@ class PurchaseOrderController extends Controller
             ])->values(),
             'edit' => $this->editInfo($po),
             'extension' => $this->extensionInfo($po),
+            'review' => $this->reviewInfo($po),
+            'escalation' => $po->status === PurchaseOrderStatus::Escalated ? $this->history->latestEscalation($po) : null,
+            'history' => $this->history->forPurchaseOrder($po),
         ];
     }
 
@@ -265,6 +322,53 @@ class PurchaseOrderController extends Controller
             ...$info,
             'allowed' => $result->allowed(),
             'reason' => $result->allowed() ? null : $result->message(),
+        ];
+    }
+
+    /**
+     * Drives the Verify, Escalate and "Send back to Reviewer" buttons (step 3.6). Reasons go only
+     * to people who hold the permission, and only while they matter: the review reason while the
+     * PO is before verification, the send-back reason while the PO is escalated. Hiding a button is
+     * for convenience; PurchaseOrderPolicy and PoReviewRule are the real protection.
+     *
+     * @return array{can_verify: bool, can_escalate: bool, can_send_back: bool, reason: string|null, send_back_reason: string|null}
+     */
+    private function reviewInfo(PurchaseOrder $po): array
+    {
+        $user = request()->user();
+
+        $verify = $user?->can('po.review') ? Gate::inspect('verify', $po) : null;
+        $escalate = $user?->can('po.escalate') ? Gate::inspect('escalate', $po) : null;
+        $sendBack = $user?->can('po.edit') ? Gate::inspect('sendBack', $po) : null;
+
+        $beforeVerification = in_array(
+            $po->status,
+            [PurchaseOrderStatus::Draft, PurchaseOrderStatus::Uploaded, PurchaseOrderStatus::Escalated],
+            true,
+        );
+
+        $reviewReason = null;
+
+        if ($beforeVerification) {
+            foreach ([$verify, $escalate] as $result) {
+                if ($result !== null && ! $result->allowed() && $result->message()) {
+                    $reviewReason = $result->message();
+
+                    break;
+                }
+            }
+        }
+
+        $sendBackReason = $po->status === PurchaseOrderStatus::Escalated && $sendBack !== null && ! $sendBack->allowed()
+            ? $sendBack->message()
+            : null;
+
+        return [
+            'can_verify' => $verify?->allowed() ?? false,
+            'can_escalate' => $escalate?->allowed() ?? false,
+            'can_send_back' => $sendBack?->allowed() ?? false,
+            'reason' => $reviewReason,
+            'send_back_reason' => $sendBackReason,
         ];
     }
 

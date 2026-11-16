@@ -1,10 +1,13 @@
 import { Head, Link } from '@inertiajs/react';
-import { ArrowLeft, FileText, History, Pencil, Truck } from 'lucide-react';
+import { ArrowLeft, FileText, Pencil, Truck } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { ComingSoon } from '@/components/coming-soon';
 import Heading from '@/components/heading';
 import OverdueBadgeSlot from '@/components/purchase-orders/overdue-badge-slot';
 import { formatPhp, orDash } from '@/components/purchase-orders/po-format';
+import PoHistoryList from '@/components/purchase-orders/po-history-list';
+import type { HistoryEntry } from '@/components/purchase-orders/po-history-list';
+import PoReviewActions from '@/components/purchase-orders/po-review-actions';
 import PoStatusBadge from '@/components/purchase-orders/po-status-badge';
 import RecordExtensionDialog from '@/components/purchase-orders/record-extension-dialog';
 import ResponsiveList from '@/components/responsive-list';
@@ -51,6 +54,9 @@ type PurchaseOrder = {
     extensions: ExtensionRow[];
     edit: { allowed: boolean; reason: string | null };
     extension: { allowed: boolean; reason: string | null; max_days: number; counting: string };
+    review: { can_verify: boolean; can_escalate: boolean; can_send_back: boolean; reason: string | null; send_back_reason: string | null };
+    escalation: { reason: string | null; by: string | null; at: string } | null;
+    history: HistoryEntry[];
 };
 
 type Props = { purchaseOrder: PurchaseOrder };
@@ -119,6 +125,8 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <Heading title={po.po_number} description={po.supplier} />
                     <div className="flex flex-wrap items-center gap-2">
+                        {/* Verify / Escalate (PO Reviewer) and Send back (Admin). The server decides which are drawn. */}
+                        <PoReviewActions poId={po.id} poNumber={po.po_number} dueDate={po.due_date} review={po.review} />
                         {po.edit.allowed && (
                             <Button asChild size="sm">
                                 <Link href={`/purchase-orders/${po.id}/edit`}>
@@ -130,7 +138,20 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                     </div>
                 </div>
 
+                {/* The Admin sees why the PO was escalated, right where the fix starts. */}
+                {po.escalation && (
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+                        <p className="font-medium">Escalated to the Admin</p>
+                        <p className="mt-0.5 break-words">{po.escalation.reason ?? 'No remarks were recorded.'}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            {po.escalation.by ?? 'Unknown user'} · {po.escalation.at}
+                        </p>
+                    </div>
+                )}
+
                 {po.edit.reason && <p className="text-sm text-muted-foreground">{po.edit.reason}</p>}
+                {po.review.reason && <p className="text-sm text-muted-foreground">{po.review.reason}</p>}
+                {po.review.send_back_reason && <p className="text-sm text-muted-foreground">{po.review.send_back_reason}</p>}
 
                 {/* Tabs: plain buttons, they wrap on a phone instead of scrolling sideways */}
                 <div role="tablist" className="flex flex-wrap gap-1 border-b pb-2">
@@ -231,9 +252,7 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                     <ComingSoon title="Documents" description="The PO Bundle and the consolidated PDF will appear here." icon={FileText} step="4.2" />
                 )}
 
-                {tab === 'history' && (
-                    <ComingSoon title="History" description="Status changes and audit entries for this PO will appear here." icon={History} step="3.6" />
-                )}
+                {tab === 'history' && <PoHistoryList entries={po.history} />}
             </div>
         </>
     );

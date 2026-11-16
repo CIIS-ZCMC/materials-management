@@ -14,9 +14,11 @@ Route::redirect('/', '/login')->name('home');
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');
 
-    // Steps 3.2, 3.3 and 3.5: PO list, detail, create, edit and record extension. The section gate
-    // opens the pages; PurchaseOrderPolicy checks po.view / po.create / po.edit (and the status rule
-    // for edits); extensions need extension.manage (RecordExtensionRequest) and ExtensionRule.
+    // Steps 3.2, 3.3, 3.5 and 3.6: PO list, detail, create, edit, record extension, verify, escalate
+    // and send back. The section gate opens the pages; PurchaseOrderPolicy checks po.view / po.create /
+    // po.edit (and the status rule for edits); extensions need extension.manage (RecordExtensionRequest)
+    // and ExtensionRule; verify needs po.review, escalate po.escalate, send back po.edit (their Form
+    // Requests) and PoReviewRule.
     // 'item-search' and 'create' must stay above the {purchaseOrder} routes.
     Route::middleware('can:section.purchase-orders')
         ->controller(PurchaseOrderController::class)
@@ -31,6 +33,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::get('{purchaseOrder}/edit', 'edit')->whereNumber('purchaseOrder')->name('edit');
             Route::put('{purchaseOrder}', 'update')->whereNumber('purchaseOrder')->name('update');
             Route::post('{purchaseOrder}/extensions', 'storeExtension')->whereNumber('purchaseOrder')->name('extensions.store');
+            Route::post('{purchaseOrder}/verify', 'verify')->whereNumber('purchaseOrder')->name('verify');
+            Route::post('{purchaseOrder}/escalate', 'escalate')->whereNumber('purchaseOrder')->name('escalate');
+            Route::post('{purchaseOrder}/send-back', 'sendBack')->whereNumber('purchaseOrder')->name('send-back');
         });
 
     // Step 2.1: the section gate opens the menu; SupplierPolicy decides who

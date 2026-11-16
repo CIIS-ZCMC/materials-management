@@ -6,13 +6,17 @@ use App\Models\PurchaseOrder;
 use App\Models\User;
 use App\Support\ExtensionRule;
 use App\Support\PoEditRule;
+use App\Support\PoReviewRule;
 use Illuminate\Auth\Access\Response;
 
 /**
  * po.view          see the PO list and a PO's details
  * po.create        create a PO in the system
- * po.edit          edit a PO, only while PoEditRule allows it (draft, uploaded, escalated)
+ * po.edit          edit a PO, only while PoEditRule allows it (draft, uploaded, escalated);
+ *                  also sends an escalated PO back to the Reviewer (PoReviewRule::sendBackBlockReason)
  * extension.manage record an extension, only while ExtensionRule allows it (verified, not closed, has a due date)
+ * po.review        verify a PO, only while PoReviewRule allows it (uploaded)
+ * po.escalate      escalate a PO to the Admin, only while PoReviewRule allows it (uploaded)
  * Auto-discovered: App\Models\PurchaseOrder -> App\Policies\PurchaseOrderPolicy.
  */
 class PurchaseOrderPolicy
@@ -52,6 +56,42 @@ class PurchaseOrderPolicy
         }
 
         $reason = ExtensionRule::blockReason($purchaseOrder);
+
+        return $reason === null ? Response::allow() : Response::deny($reason);
+    }
+
+    /** Verify the PO (step 3.6). PO Reviewer job only; the Admin does not verify. */
+    public function verify(User $actor, PurchaseOrder $purchaseOrder): Response
+    {
+        if (! $actor->can('po.review')) {
+            return Response::deny();
+        }
+
+        $reason = PoReviewRule::verifyBlockReason($purchaseOrder);
+
+        return $reason === null ? Response::allow() : Response::deny($reason);
+    }
+
+    /** Escalate the PO to the System Admin with remarks (step 3.6). */
+    public function escalate(User $actor, PurchaseOrder $purchaseOrder): Response
+    {
+        if (! $actor->can('po.escalate')) {
+            return Response::deny();
+        }
+
+        $reason = PoReviewRule::escalateBlockReason($purchaseOrder);
+
+        return $reason === null ? Response::allow() : Response::deny($reason);
+    }
+
+    /** "Send back to Reviewer" (step 3.6): the Admin, with po.edit, after fixing an escalated PO. */
+    public function sendBack(User $actor, PurchaseOrder $purchaseOrder): Response
+    {
+        if (! $actor->can('po.edit')) {
+            return Response::deny();
+        }
+
+        $reason = PoReviewRule::sendBackBlockReason($purchaseOrder);
 
         return $reason === null ? Response::allow() : Response::deny($reason);
     }
