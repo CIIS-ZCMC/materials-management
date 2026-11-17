@@ -28,6 +28,11 @@
 |                   MMS_EXTENSION_MAX_DAYS in .env, default 90). A second
 |                   extension may be recorded later; each one is capped.
 | uploads.*         Limits for uploaded documents (see the note on PHP limits).
+|                   Allowed types: pdf, jpg, jpeg, png (step 4.2).
+| pdf.qpdf_path     MMS_QPDF_PATH in .env: the ABSOLUTE path of the qpdf program
+|                   (see docs/PDF-MERGE.md section 8). Used to check every
+|                   uploaded PDF (step 4.2) and to merge them (step 4.3).
+|                   After changing .env: php artisan config:clear
 | bizbox.enabled    BIZBOX_ENABLED in .env (default false). false = the app uses
 |                   LocalPurchaseOrderProvider (our own database) and the BizBox
 |                   provider is never created. true = the BizBox provider is used;
@@ -94,12 +99,17 @@ return [
     | smaller, PHP drops the upload before Laravel sees it and the form fails
     | with a confusing message. Keep this number at or below both, and
     | post_max_size at least (files per request x max_size_kb).
-    | XAMPP usually ships 40M for both, but check with the command in the
-    | step notes; the hospital server may differ.
+    | Set upload_max_filesize = 40M and post_max_size = 50M in the php.ini that
+    | "php --ini" shows (the hospital server may differ).
     */
     'uploads' => [
         'max_size_kb' => (int) env('MMS_MAX_UPLOAD_KB', 10240), // 10 MB per file
-        'allowed_extensions' => ['pdf'],
+        'allowed_extensions' => ['pdf', 'jpg', 'jpeg', 'png'],
+    ],
+
+    'pdf' => [
+        // Absolute path, for example C:\tools\qpdf\bin\qpdf.exe or /usr/bin/qpdf.
+        'qpdf_path' => env('MMS_QPDF_PATH'),
     ],
 
     'bizbox' => [
@@ -140,6 +150,7 @@ return [
             'items' => 'Items',
             'schedule' => 'Schedule dates',
             'extension' => 'Extension',
+            'documents' => 'Documents',
         ],
 
         'events' => [
@@ -151,6 +162,9 @@ return [
             'access_changed' => 'Access changed',
             'status_changed' => 'Status changed',
             'extension_recorded' => 'Extension recorded',
+            'document_uploaded' => 'Document uploaded',
+            'document_removed' => 'Document removed',
+            'documents_reordered' => 'Documents reordered',
             'login' => 'Login',
             'login_failed' => 'Failed login',
             'login_blocked' => 'Login blocked',

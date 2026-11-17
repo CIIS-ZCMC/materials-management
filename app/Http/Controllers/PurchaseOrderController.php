@@ -12,12 +12,14 @@ use App\Http\Requests\VerifyPurchaseOrderRequest;
 use App\Models\PoExtension;
 use App\Models\PoItem;
 use App\Models\PurchaseOrder;
+use App\Services\PoDocumentService;
 use App\Services\PoExtensionService;
 use App\Services\PoHistoryService;
 use App\Services\PoReviewService;
 use App\Services\PurchaseOrderService;
 use App\Support\DisplayTime;
 use App\Support\Money;
+use App\Support\PoDocumentRule;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -32,6 +34,7 @@ class PurchaseOrderController extends Controller
         private readonly PoExtensionService $extensions,
         private readonly PoReviewService $reviews,
         private readonly PoHistoryService $history,
+        private readonly PoDocumentService $documents,
     ) {}
 
     public function index(Request $request): Response
@@ -277,6 +280,28 @@ class PurchaseOrderController extends Controller
             'review' => $this->reviewInfo($po),
             'escalation' => $po->status === PurchaseOrderStatus::Escalated ? $this->history->latestEscalation($po) : null,
             'history' => $this->history->forPurchaseOrder($po),
+            'documents' => $this->documentsInfo($po),
+        ];
+    }
+
+    /**
+     * Drives the Documents tab (step 4.2): the list, and the upload box for people who hold
+     * po.upload-files. Hiding the box is for convenience; the Form Request is the real protection.
+     *
+     * @return array{can_upload: bool, can_submit: bool, can_remove: bool, can_reorder: bool, can_view: bool, locked_reason: string|null, accept: string, max_mb: string, rows: list<array<string, mixed>>}
+     */
+    private function documentsInfo(PurchaseOrder $po): array
+    {
+        return [
+            'can_upload' => request()->user()?->can('uploadDocument', $po) ?? false,
+            'can_submit' => (request()->user()?->can('submitDocuments', $po) ?? false) && $this->documents->hasActive($po),
+            'can_remove' => request()->user()?->can('removeDocument', $po) ?? false,
+            'can_reorder' => request()->user()?->can('reorderDocuments', $po) ?? false,
+            'can_view' => request()->user()?->can('viewDocument', $po) ?? false,
+            'locked_reason' => (request()->user()?->can('po.upload-files') ?? false) ? PoDocumentRule::addBlockReason($po) : null,
+            'accept' => collect((array) config('mms.uploads.allowed_extensions'))->map(fn ($ext) => '.'.$ext)->implode(','),
+            'max_mb' => PoDocumentService::maxMegabytes(),
+            'rows' => $this->documents->rowsFor($po),
         ];
     }
 

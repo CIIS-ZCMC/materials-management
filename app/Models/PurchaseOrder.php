@@ -102,6 +102,16 @@ class PurchaseOrder extends Model
         return $this->hasMany(PoExtension::class)->orderBy('id');
     }
 
+    /**
+     * Uploaded documents in page order (first upload = first pages), voided ones included.
+     *
+     * @return HasMany<PoDocument, $this>
+     */
+    public function documents(): HasMany
+    {
+        return $this->hasMany(PoDocument::class)->orderBy('sort_order');
+    }
+
     public function isClosed(): bool
     {
         return $this->closed_at !== null;

@@ -5,6 +5,7 @@ namespace App\Policies;
 use App\Models\PurchaseOrder;
 use App\Models\User;
 use App\Support\ExtensionRule;
+use App\Support\PoDocumentRule;
 use App\Support\PoEditRule;
 use App\Support\PoReviewRule;
 use Illuminate\Auth\Access\Response;
@@ -17,6 +18,9 @@ use Illuminate\Auth\Access\Response;
  * extension.manage record an extension, only while ExtensionRule allows it (verified, not closed, has a due date)
  * po.review        verify a PO, only while PoReviewRule allows it (uploaded)
  * po.escalate      escalate a PO to the Admin, only while PoReviewRule allows it (uploaded)
+ * po.upload-files  the PO Bundle (step 4.2b): upload, submit to the Reviewer, remove and reorder,
+ *                  each only while PoDocumentRule allows it
+ * audit.view       opens any single document file (Admin and MMS Head, the only roles that hold it today)
  * Auto-discovered: App\Models\PurchaseOrder -> App\Policies\PurchaseOrderPolicy.
  */
 class PurchaseOrderPolicy
@@ -100,5 +104,73 @@ class PurchaseOrderPolicy
     public function searchItems(User $actor): bool
     {
         return $actor->can('po.create') || $actor->can('po.edit');
+    }
+
+    /** Add a file to the PO Bundle (step 4.2b): po.upload-files, and draft, uploaded or escalated. */
+    public function uploadDocument(User $actor, PurchaseOrder $purchaseOrder): Response
+    {
+        if (! $actor->can('po.upload-files')) {
+            return Response::deny();
+        }
+
+        $reason = PoDocumentRule::addBlockReason($purchaseOrder);
+
+        return $reason === null ? Response::allow() : Response::deny($reason);
+    }
+
+    /** "Submit to Reviewer": draft -> uploaded. The Service also needs at least one active document. */
+    public function submitDocuments(User $actor, PurchaseOrder $purchaseOrder): Response
+    {
+        if (! $actor->can('po.upload-files')) {
+            return Response::deny();
+        }
+
+        $reason = PoDocumentRule::submitBlockReason($purchaseOrder);
+
+        return $reason === null ? Response::allow() : Response::deny($reason);
+    }
+
+    /** Remove (delete) a file: draft only. Later, a wrong document is voided with a reason (step 4.3). */
+    public function removeDocument(User $actor, PurchaseOrder $purchaseOrder): Response
+    {
+        if (! $actor->can('po.upload-files')) {
+            return Response::deny();
+        }
+
+        $reason = PoDocumentRule::removeBlockReason($purchaseOrder);
+
+        return $reason === null ? Response::allow() : Response::deny($reason);
+    }
+
+    /** Move a file up or down: draft and escalated. */
+    public function reorderDocuments(User $actor, PurchaseOrder $purchaseOrder): Response
+    {
+        if (! $actor->can('po.upload-files')) {
+            return Response::deny();
+        }
+
+        $reason = PoDocumentRule::reorderBlockReason($purchaseOrder);
+
+        return $reason === null ? Response::allow() : Response::deny($reason);
+    }
+
+    /**
+     * Open one document file (the View button). Uploaders may open files while the PO is draft,
+     * uploaded or escalated. Admin and MMS Head may open them at any status.
+     *
+     * audit.view is a stand-in for "Admin or MMS Head": today they are the only roles that hold it.
+     * Step 4.3 should replace it with a dedicated permission (for example documents.view-originals).
+     */
+    public function viewDocument(User $actor, PurchaseOrder $purchaseOrder): Response
+    {
+        if ($actor->can('audit.view')) {
+            return Response::allow();
+        }
+
+        if ($actor->can('po.upload-files') && PoDocumentRule::isOpen($purchaseOrder)) {
+            return Response::allow();
+        }
+
+        return Response::deny();
     }
 }

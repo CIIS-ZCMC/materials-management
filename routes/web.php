@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\ItemCategoryController;
 use App\Http\Controllers\ItemController;
+use App\Http\Controllers\PoDocumentController;
 use App\Http\Controllers\PurchaseOrderController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\UnitController;
@@ -36,6 +37,21 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::post('{purchaseOrder}/verify', 'verify')->whereNumber('purchaseOrder')->name('verify');
             Route::post('{purchaseOrder}/escalate', 'escalate')->whereNumber('purchaseOrder')->name('escalate');
             Route::post('{purchaseOrder}/send-back', 'sendBack')->whereNumber('purchaseOrder')->name('send-back');
+        });
+
+    // Steps 4.2 and 4.2b: the Documents tab. The section gate opens the pages; PurchaseOrderPolicy
+    // (po.upload-files, audit.view) and PoDocumentRule decide each action. Kept outside the group
+    // above because it uses a different controller.
+    Route::middleware('can:section.purchase-orders')
+        ->controller(PoDocumentController::class)
+        ->prefix('purchase-orders/{purchaseOrder}/documents')
+        ->name('purchase-orders.documents.')
+        ->group(function () {
+            Route::post('/', 'store')->whereNumber('purchaseOrder')->name('store');
+            Route::post('submit', 'submit')->whereNumber('purchaseOrder')->name('submit');
+            Route::get('{document}/file', 'file')->whereNumber(['purchaseOrder', 'document'])->name('file');
+            Route::post('{document}/move', 'move')->whereNumber(['purchaseOrder', 'document'])->name('move');
+            Route::delete('{document}', 'destroy')->whereNumber(['purchaseOrder', 'document'])->name('destroy');
         });
 
     // Step 2.1: the section gate opens the menu; SupplierPolicy decides who
