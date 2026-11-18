@@ -10,15 +10,16 @@ use App\Models\PurchaseOrder;
  * (step 4.2b). Used by PurchaseOrderPolicy (buttons and 403 messages) and by
  * PoDocumentService (a second check inside the transaction, with the PO row locked).
  *
- *            add file   remove (delete)   move up/down   submit   open one file
- * draft         yes          yes               yes          yes        yes
- * uploaded      yes          no (void)         no           no         yes
- * escalated     yes          no (void)         yes          no         yes
- * verified+     no           no                no           no         Admin / MMS Head only
+ *            add file   remove (delete)   move up/down   submit   void / replace   open one file
+ * draft         yes          yes               yes          yes          no (remove)    yes
+ * uploaded      yes          no (void)         no           no           yes            yes
+ * escalated     yes          no (void)         yes          no           yes            yes
+ * verified+     no           no                no           no           no             documents.view-originals only
  *
  * Each method returns a plain message when the action is blocked and null when it is allowed.
- * Permissions (po.upload-files and so on) are checked in the Policy, not here.
- * Voiding a wrong document with a reason (uploaded and escalated POs) is built in step 4.3.
+ * Permissions (po.upload-files, documents.void and so on) are checked in the Policy, not here.
+ * Void and replace (a wrong document, with a reason) are built in step 4.3. Every change to the
+ * documents of a PO is followed by a rebuild of the consolidated PDF (PoConsolidatedPdfService).
  */
 final class PoDocumentRule
 {
@@ -32,6 +33,12 @@ final class PoDocumentRule
     /** @var list<PurchaseOrderStatus> */
     private const REORDER = [
         PurchaseOrderStatus::Draft,
+        PurchaseOrderStatus::Escalated,
+    ];
+
+    /** @var list<PurchaseOrderStatus> */
+    private const VOID = [
+        PurchaseOrderStatus::Uploaded,
         PurchaseOrderStatus::Escalated,
     ];
 
@@ -59,6 +66,29 @@ final class PoDocumentRule
         }
 
         return 'A file can be removed only while the PO is a draft. After that, a wrong document is voided with a reason.';
+    }
+
+    /**
+     * Void a wrong document with a reason (step 4.3): uploaded and escalated POs only.
+     * In a draft the file is simply removed; from verified on the bundle the Reviewer checked is locked.
+     */
+    public static function voidBlockReason(PurchaseOrder $po): ?string
+    {
+        if (in_array($po->status, self::VOID, true)) {
+            return null;
+        }
+
+        if ($po->status === PurchaseOrderStatus::Draft) {
+            return 'In a draft PO a wrong file is removed, not voided.';
+        }
+
+        return 'A document can no longer be voided or replaced once the PO is "'.strtolower($po->status->label()).'".';
+    }
+
+    /** Replace = void one document and put the new file in its place; the same statuses as voiding. */
+    public static function replaceBlockReason(PurchaseOrder $po): ?string
+    {
+        return self::voidBlockReason($po);
     }
 
     public static function reorderBlockReason(PurchaseOrder $po): ?string

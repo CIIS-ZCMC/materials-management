@@ -12,6 +12,7 @@ use App\Http\Requests\VerifyPurchaseOrderRequest;
 use App\Models\PoExtension;
 use App\Models\PoItem;
 use App\Models\PurchaseOrder;
+use App\Services\PoConsolidatedPdfService;
 use App\Services\PoDocumentService;
 use App\Services\PoExtensionService;
 use App\Services\PoHistoryService;
@@ -35,6 +36,7 @@ class PurchaseOrderController extends Controller
         private readonly PoReviewService $reviews,
         private readonly PoHistoryService $history,
         private readonly PoDocumentService $documents,
+        private readonly PoConsolidatedPdfService $consolidated,
     ) {}
 
     public function index(Request $request): Response
@@ -285,23 +287,33 @@ class PurchaseOrderController extends Controller
     }
 
     /**
-     * Drives the Documents tab (step 4.2): the list, and the upload box for people who hold
-     * po.upload-files. Hiding the box is for convenience; the Form Request is the real protection.
+     * Drives the Documents tab (steps 4.2 and 4.3): the combined PDF, the page index, and the buttons for
+     * the people who may use them. Hiding a button is for convenience; the Form Requests and the Policy
+     * are the real protection. can_view is the single ORIGINAL file (Admin, MMS Head, and uploaders while
+     * the PO is open); everyone with po.view sees the combined PDF (can_view_consolidated).
+     * Voided rows are sent only to people who handle or audit the files.
      *
-     * @return array{can_upload: bool, can_submit: bool, can_remove: bool, can_reorder: bool, can_view: bool, locked_reason: string|null, accept: string, max_mb: string, rows: list<array<string, mixed>>}
+     * @return array{can_upload: bool, can_submit: bool, can_remove: bool, can_reorder: bool, can_view: bool, can_view_consolidated: bool, can_void: bool, can_replace: bool, can_rebuild: bool, locked_reason: string|null, accept: string, max_mb: string, consolidated: array<string, mixed>, rows: list<array<string, mixed>>}
      */
     private function documentsInfo(PurchaseOrder $po): array
     {
+        $user = request()->user();
+
         return [
-            'can_upload' => request()->user()?->can('uploadDocument', $po) ?? false,
-            'can_submit' => (request()->user()?->can('submitDocuments', $po) ?? false) && $this->documents->hasActive($po),
-            'can_remove' => request()->user()?->can('removeDocument', $po) ?? false,
-            'can_reorder' => request()->user()?->can('reorderDocuments', $po) ?? false,
-            'can_view' => request()->user()?->can('viewDocument', $po) ?? false,
-            'locked_reason' => (request()->user()?->can('po.upload-files') ?? false) ? PoDocumentRule::addBlockReason($po) : null,
+            'can_upload' => $user?->can('uploadDocument', $po) ?? false,
+            'can_submit' => ($user?->can('submitDocuments', $po) ?? false) && $this->documents->hasActive($po),
+            'can_remove' => $user?->can('removeDocument', $po) ?? false,
+            'can_reorder' => $user?->can('reorderDocuments', $po) ?? false,
+            'can_view' => $user?->can('viewDocument', $po) ?? false,
+            'can_view_consolidated' => $user?->can('viewConsolidated', $po) ?? false,
+            'can_void' => $user?->can('voidDocument', $po) ?? false,
+            'can_replace' => $user?->can('replaceDocument', $po) ?? false,
+            'can_rebuild' => $user?->can('rebuildConsolidated', $po) ?? false,
+            'locked_reason' => ($user?->can('po.upload-files') ?? false) ? PoDocumentRule::addBlockReason($po) : null,
             'accept' => collect((array) config('mms.uploads.allowed_extensions'))->map(fn ($ext) => '.'.$ext)->implode(','),
             'max_mb' => PoDocumentService::maxMegabytes(),
-            'rows' => $this->documents->rowsFor($po),
+            'consolidated' => $this->consolidated->info($po),
+            'rows' => $this->documents->rowsFor($po, includeVoid: $user?->canAny(['po.upload-files', 'documents.void', 'documents.view-originals']) ?? false),
         ];
     }
 

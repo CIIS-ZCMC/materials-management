@@ -39,9 +39,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::post('{purchaseOrder}/send-back', 'sendBack')->whereNumber('purchaseOrder')->name('send-back');
         });
 
-    // Steps 4.2 and 4.2b: the Documents tab. The section gate opens the pages; PurchaseOrderPolicy
-    // (po.upload-files, audit.view) and PoDocumentRule decide each action. Kept outside the group
-    // above because it uses a different controller.
+    // Steps 4.2, 4.2b and 4.3: the Documents tab. The section gate opens the pages; PurchaseOrderPolicy
+    // (po.upload-files, documents.void, documents.view-originals, po.view) and PoDocumentRule decide each
+    // action. 'consolidated' is the combined PDF (viewer and ?download=1). Kept outside the group above
+    // because it uses a different controller.
     Route::middleware('can:section.purchase-orders')
         ->controller(PoDocumentController::class)
         ->prefix('purchase-orders/{purchaseOrder}/documents')
@@ -49,8 +50,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->group(function () {
             Route::post('/', 'store')->whereNumber('purchaseOrder')->name('store');
             Route::post('submit', 'submit')->whereNumber('purchaseOrder')->name('submit');
+            Route::post('rebuild', 'rebuild')->whereNumber('purchaseOrder')->name('rebuild');
+            Route::get('consolidated', 'consolidated')->whereNumber('purchaseOrder')->name('consolidated');
             Route::get('{document}/file', 'file')->whereNumber(['purchaseOrder', 'document'])->name('file');
             Route::post('{document}/move', 'move')->whereNumber(['purchaseOrder', 'document'])->name('move');
+            Route::post('{document}/void', 'void')->whereNumber(['purchaseOrder', 'document'])->name('void');
+            Route::post('{document}/replace', 'replace')->whereNumber(['purchaseOrder', 'document'])->name('replace');
             Route::delete('{document}', 'destroy')->whereNumber(['purchaseOrder', 'document'])->name('destroy');
         });
 

@@ -28,6 +28,11 @@ use Illuminate\Support\Carbon;
  * @property string|null $external_id
  * @property PurchaseOrderStatus $status
  * @property Carbon|null $closed_at
+ * @property string|null $consolidated_path
+ * @property int|null $consolidated_pages
+ * @property Carbon|null $consolidated_built_at
+ * @property bool $consolidated_stale
+ * @property string|null $consolidated_error
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Supplier $supplier
@@ -39,6 +44,7 @@ use Illuminate\Support\Carbon;
  *   (steps 7.3 and 8.1). It is stamped the first time the PO is closed
  *   (fully delivered or cancelled/terminated, AND paid) and cleared if
  *   that stops being true. Nobody types it.
+ * - consolidated_*: written only by PoConsolidatedPdfService (the combined PDF of the PO, step 4.3).
  */
 #[Fillable(['po_number', 'supplier_id', 'po_date', 'emailed_date', 'delivery_term_days', 'source', 'external_id'])]
 class PurchaseOrder extends Model
@@ -65,6 +71,9 @@ class PurchaseOrder extends Model
             'source' => PurchaseOrderSource::class,
             'status' => PurchaseOrderStatus::class,
             'closed_at' => 'datetime',
+            'consolidated_pages' => 'integer',
+            'consolidated_built_at' => 'datetime',
+            'consolidated_stale' => 'boolean',
         ];
     }
 

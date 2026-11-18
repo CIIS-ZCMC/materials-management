@@ -31,7 +31,8 @@
 |                   Allowed types: pdf, jpg, jpeg, png (step 4.2).
 | pdf.qpdf_path     MMS_QPDF_PATH in .env: the ABSOLUTE path of the qpdf program
 |                   (see docs/PDF-MERGE.md section 8). Used to check every
-|                   uploaded PDF (step 4.2) and to merge them (step 4.3).
+|                   uploaded PDF (step 4.2) and to build the consolidated PDF
+|                   of a PO after every change to its documents (step 4.3).
 |                   After changing .env: php artisan config:clear
 | bizbox.enabled    BIZBOX_ENABLED in .env (default false). false = the app uses
 |                   LocalPurchaseOrderProvider (our own database) and the BizBox
@@ -165,6 +166,8 @@ return [
             'document_uploaded' => 'Document uploaded',
             'document_removed' => 'Document removed',
             'documents_reordered' => 'Documents reordered',
+            'document_voided' => 'Document voided',
+            'document_replaced' => 'Document replaced',
             'login' => 'Login',
             'login_failed' => 'Failed login',
             'login_blocked' => 'Login blocked',

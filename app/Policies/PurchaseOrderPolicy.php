@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\PurchaseOrderStatus;
 use App\Models\PurchaseOrder;
 use App\Models\User;
 use App\Support\ExtensionRule;
@@ -20,7 +21,11 @@ use Illuminate\Auth\Access\Response;
  * po.escalate      escalate a PO to the Admin, only while PoReviewRule allows it (uploaded)
  * po.upload-files  the PO Bundle (step 4.2b): upload, submit to the Reviewer, remove and reorder,
  *                  each only while PoDocumentRule allows it
- * audit.view       opens any single document file (Admin and MMS Head, the only roles that hold it today)
+ * documents.void  voids or replaces a wrong document with a reason (step 4.3), only while PoDocumentRule
+ *                  allows it (uploaded, escalated). The PO Bundle also needs po.upload-files (Procurement);
+ *                  when Phase 5 adds DR/OR/IAR the Encoder's own rule is decided there.
+ * documents.view-originals  opens any single (original) document file at any status (Admin and MMS Head)
+ * po.view          opens the consolidated PDF (a draft's only for people who handle the files)
  * Auto-discovered: App\Models\PurchaseOrder -> App\Policies\PurchaseOrderPolicy.
  */
 class PurchaseOrderPolicy
@@ -154,16 +159,58 @@ class PurchaseOrderPolicy
         return $reason === null ? Response::allow() : Response::deny($reason);
     }
 
+    /** Void a wrong document with a reason (step 4.3): documents.void + po.upload-files, uploaded or escalated. */
+    public function voidDocument(User $actor, PurchaseOrder $purchaseOrder): Response
+    {
+        if (! $actor->can('documents.void') || ! $actor->can('po.upload-files')) {
+            return Response::deny();
+        }
+
+        $reason = PoDocumentRule::voidBlockReason($purchaseOrder);
+
+        return $reason === null ? Response::allow() : Response::deny($reason);
+    }
+
+    /** Replace a wrong document (void + new file in its place): same people and statuses as voiding. */
+    public function replaceDocument(User $actor, PurchaseOrder $purchaseOrder): Response
+    {
+        if (! $actor->can('documents.void') || ! $actor->can('po.upload-files')) {
+            return Response::deny();
+        }
+
+        $reason = PoDocumentRule::replaceBlockReason($purchaseOrder);
+
+        return $reason === null ? Response::allow() : Response::deny($reason);
+    }
+
     /**
-     * Open one document file (the View button). Uploaders may open files while the PO is draft,
-     * uploaded or escalated. Admin and MMS Head may open them at any status.
-     *
-     * audit.view is a stand-in for "Admin or MMS Head": today they are the only roles that hold it.
-     * Step 4.3 should replace it with a dedicated permission (for example documents.view-originals).
+     * Open the consolidated PDF (inline viewer, download). Everyone who may see the PO (po.view) may open it,
+     * except that a DRAFT's bundle is for the people who handle the files: the PO Reviewer sees it only after
+     * "Submit to Reviewer".
+     */
+    public function viewConsolidated(User $actor, PurchaseOrder $purchaseOrder): Response
+    {
+        if ($purchaseOrder->status === PurchaseOrderStatus::Draft) {
+            return $actor->canAny(['po.upload-files', 'documents.view-originals']) ? Response::allow() : Response::deny();
+        }
+
+        return $actor->can('po.view') ? Response::allow() : Response::deny();
+    }
+
+    /** "Rebuild combined PDF" (retry after a failed rebuild). Harmless and repeatable, so any status. */
+    public function rebuildConsolidated(User $actor, PurchaseOrder $purchaseOrder): bool
+    {
+        return $actor->canAny(['po.upload-files', 'documents.void', 'documents.view-originals']);
+    }
+
+    /**
+     * Open one ORIGINAL document file (the "Original" button). Uploaders may open files while the PO is draft,
+     * uploaded or escalated. Admin and MMS Head (documents.view-originals) may open them at any status.
+     * Everyone else works with the consolidated PDF only.
      */
     public function viewDocument(User $actor, PurchaseOrder $purchaseOrder): Response
     {
-        if ($actor->can('audit.view')) {
+        if ($actor->can('documents.view-originals')) {
             return Response::allow();
         }
 

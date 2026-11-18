@@ -18,6 +18,8 @@ use Spatie\Activitylog\Models\Activity;
  * the exit codes 0, 3 and 2 are what "qpdf --check" really returns
  * (docs/PDF-MERGE.md section 3.3). Images need the "gd" PHP extension to build.
  *
+ * Step 4.3 (consolidated PDF, void, replace) is tested in PoConsolidatedPdfTest.
+ *
  * Since 4.2b an upload never changes the PO status ("Submit to Reviewer" does), uploads are
  * allowed in draft, uploaded and escalated only, remove is draft only, moving is draft and
  * escalated, and one file may be opened by uploaders (open statuses) and by Admin / MMS Head.
@@ -303,7 +305,8 @@ it('turns a JPEG into a PDF page at upload without re-encoding it and keeps the 
         ->and(Storage::disk('local')->get($document->original_path))->toBe($jpeg)
         ->and($po->fresh()->status)->toBe(PurchaseOrderStatus::Draft);
 
-    Process::assertNothingRan();
+    // Since step 4.3 an upload also rebuilds the combined PDF, so qpdf does run; what must NOT run is the check of a PDF.
+    Process::assertNotRan(fn (PendingProcess $process) => ($process->command[1] ?? null) === '--check');
 });
 
 it('applies the phone rotation (EXIF) through the page /Rotate', function () {

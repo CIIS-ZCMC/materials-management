@@ -44,6 +44,7 @@ return [
         'delivery.encode',            // enter Invoice #, IAR #, Fund Cluster, Amount, signatories
         'delivery.upload-docs',       // upload DR, OR, IAR
         'documents.void',             // void or replace a wrongly uploaded document (reason required)
+        'documents.view-originals',   // open the single original files behind the consolidated PDF, at any PO status (Admin, MMS Head)
 
         // Part 3: monitoring and property documents
         'delivery.update-items',      // update delivered quantity per item and date
@@ -89,6 +90,7 @@ return [
             'roles.manage',
             'audit.view',
             'reports.view',
+            'documents.view-originals',
         ],
 
         'Procurement' => [
@@ -118,6 +120,7 @@ return [
             'reports.view',
             'audit.view',
             'dv.override-incomplete',
+            'documents.view-originals',
         ],
 
         'Finance' => [

@@ -15,6 +15,7 @@ use App\Support\PoDocumentRule;
 use App\Support\Qpdf;
 use App\Support\StatusTransition;
 use Exception;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -41,6 +42,12 @@ use Throwable;
  *
  * submit():  draft -> uploaded through StatusTransition::apply() (needs one active document).
  * remove():  a real delete, draft only (row and files); the page numbers close the gap.
+ * void():    uploaded and escalated POs: a wrong document stays on record, with a reason (step 4.3).
+ * replace(): void + a new file in the same place (step 4.3).
+ *
+ * Step 4.3: this service never builds the consolidated PDF. The controller calls
+ * PoConsolidatedPdfService::rebuild() AFTER each change is committed, so a failed merge
+ * can never undo an upload, void or reorder.
  * move():    swaps a document with the next or previous ACTIVE one (draft and escalated).
  * fileResponse(): streams one stored PDF inline through an authorized route.
  *
@@ -88,33 +95,9 @@ final class PoDocumentService
 
                 $this->assertAllowed(PoDocumentRule::addBlockReason($locked), 'file');
 
-                $storedPath = "{$directory}/{$name}.pdf";
-                $originalPath = null;
-                $written[] = $storedPath;
-
-                if ($pdfBytes === null) {
-                    $this->stored($disk->putFileAs($directory, $file, "{$name}.pdf"));
-                } else {
-                    $originalPath = "{$directory}/{$name}.{$kind}";
-                    $written[] = $originalPath;
-                    $this->stored($disk->put($storedPath, $pdfBytes));
-                    $this->stored($disk->putFileAs($directory, $file, "{$name}.{$kind}"));
-                }
-
                 $order = (int) PoDocument::query()->where('purchase_order_id', $locked->getKey())->max('sort_order') + 1;
-                $originalName = $this->cleanName($file->getClientOriginalName());
-
-                $document = PoDocument::create([
-                    'purchase_order_id' => $locked->getKey(),
-                    'type' => $type,
-                    'original_name' => $originalName,
-                    'stored_path' => $storedPath,
-                    'original_path' => $originalPath,
-                    'mime' => self::MIME[$kind],
-                    'size_bytes' => (int) $file->getSize(),
-                    'uploaded_by' => $actor->getKey(),
-                    'sort_order' => $order,
-                ]);
+                $document = $this->persist($locked, $file, $type, $actor, $kind, $pdfBytes, $disk, $directory, $name, $order, null, $written);
+                $originalName = $document->original_name;
 
                 Audit::log(
                     event: 'document_uploaded',
@@ -287,6 +270,120 @@ final class PoDocumentService
         });
     }
 
+    /**
+     * Voids a wrong document with a reason (step 4.3; documents.void, uploaded and escalated POs).
+     * The row and its files stay (the originals are never lost); the document leaves the consolidated
+     * PDF, and keeps its place number. The caller rebuilds the consolidated PDF afterwards.
+     * The last active document cannot be voided: replace it, so a submitted PO is never left empty.
+     *
+     * @throws ValidationException error key "form"
+     */
+    public function void(PurchaseOrder $po, PoDocument $document, string $reason, User $actor): void
+    {
+        DB::transaction(function () use ($po, $document, $reason, $actor): void {
+            $locked = $this->lock($po);
+
+            $this->assertAllowed(PoDocumentRule::voidBlockReason($locked), 'form');
+
+            $target = $this->lockActiveDocument($locked, $document);
+
+            $active = PoDocument::query()
+                ->where('purchase_order_id', $locked->getKey())
+                ->where('status', PoDocumentStatus::Active->value)
+                ->count();
+
+            if ($active < 2) {
+                throw ValidationException::withMessages([
+                    'form' => 'This is the only active document of the PO. Replace it instead, so the PO is never left without documents.',
+                ]);
+            }
+
+            $reason = trim($reason);
+            $summary = "{$target->type->label()}: {$target->original_name}";
+
+            $this->markVoid($target, $reason, $actor);
+
+            Audit::log(
+                event: 'document_voided',
+                subject: $locked,
+                description: "Voided {$summary} in PO {$locked->po_number}",
+                old: ['documents' => $summary],
+                reason: $reason,
+                extra: ['document_id' => $target->getKey(), 'sort_order' => $target->sort_order],
+                causer: $actor,
+                log: 'po',
+            );
+        });
+    }
+
+    /**
+     * Replaces a wrong document: the old one is voided with the reason and the new file takes its place
+     * in the page order (the documents after it move up by one number). The new file gets the same
+     * type, and goes through the same content checks as an upload. One transaction, one audit entry.
+     *
+     * @throws ValidationException error key "file" (the new file) or "form" (the rule)
+     */
+    public function replace(PurchaseOrder $po, PoDocument $document, UploadedFile $file, string $reason, User $actor): PoDocument
+    {
+        $kind = $this->inspect($file);
+        $pdfBytes = $kind === 'pdf' ? null : $this->imageToPdf($file, $kind);
+
+        $disk = Storage::disk(self::DISK);
+        $directory = 'po-documents/'.$po->getKey();
+        $name = (string) Str::uuid();
+        $written = [];
+
+        try {
+            return DB::transaction(function () use ($po, $document, $file, $reason, $actor, $kind, $pdfBytes, $disk, $directory, $name, &$written): PoDocument {
+                $locked = $this->lock($po);
+
+                $this->assertAllowed(PoDocumentRule::replaceBlockReason($locked), 'form');
+
+                $old = $this->lockActiveDocument($locked, $document);
+
+                // Make room right after the old document. Highest number first: the unique key on
+                // (purchase_order_id, sort_order) never sees two rows with the same number.
+                PoDocument::query()
+                    ->where('purchase_order_id', $locked->getKey())
+                    ->where('sort_order', '>', $old->sort_order)
+                    ->orderByDesc('sort_order')
+                    ->get()
+                    ->each(function (PoDocument $later): void {
+                        $later->sort_order = $later->sort_order + 1;
+                        $later->save();
+                    });
+
+                $new = $this->persist($locked, $file, $old->type, $actor, $kind, $pdfBytes, $disk, $directory, $name, $old->sort_order + 1, $old->delivery_id, $written);
+
+                $reason = trim($reason);
+                $oldSummary = "{$old->type->label()}: {$old->original_name}";
+                $newSummary = "{$new->type->label()}: {$new->original_name}";
+
+                $this->markVoid($old, $reason, $actor);
+
+                Audit::log(
+                    event: 'document_replaced',
+                    subject: $locked,
+                    description: "Replaced {$oldSummary} with {$new->original_name} in PO {$locked->po_number}",
+                    old: ['documents' => $oldSummary],
+                    new: ['documents' => $newSummary],
+                    reason: $reason,
+                    extra: ['old_document_id' => $old->getKey(), 'document_id' => $new->getKey(), 'sort_order' => $new->sort_order],
+                    causer: $actor,
+                    log: 'po',
+                );
+
+                return $new;
+            });
+        } catch (Throwable $e) {
+            if ($written !== []) {
+                $disk->delete($written);
+            }
+
+            throw $e;
+        }
+    }
+
     /** True when the PO has at least one active document (drives the Submit button). */
     public function hasActive(PurchaseOrder $po): bool
     {
@@ -316,29 +413,135 @@ final class PoDocumentService
     }
 
     /**
-     * Rows for the Documents tab, in page order (voided ones included).
+     * Rows for the Documents tab, in page order: the page index. The page numbers come from OUR records
+     * (the scans have no text layer): each active document's page_count, added up in order, which is
+     * the same order PoConsolidatedPdfService merges them. A voided document has no pages.
+     * If one active document has no page_count yet (a PO from before step 4.3 until its first rebuild),
+     * it and the ones after it show no page numbers.
      *
+     * @param  bool  $includeVoid  false hides voided documents (people who only read the consolidated PDF)
      * @return list<array<string, mixed>>
      */
-    public function rowsFor(PurchaseOrder $po): array
+    public function rowsFor(PurchaseOrder $po, bool $includeVoid = true): array
     {
+        $next = 1;
+
         return PoDocument::query()
             ->where('purchase_order_id', $po->getKey())
             ->with('uploader:id,name')
             ->orderBy('sort_order')
             ->get()
-            ->map(fn (PoDocument $document) => [
-                'id' => $document->id,
-                'sort_order' => $document->sort_order,
-                'type' => $document->type->label(),
-                'original_name' => $document->original_name,
-                'size_bytes' => $document->size_bytes,
-                'status' => $document->status->value,
-                'uploaded_by' => $document->uploader?->name,
-                'uploaded_at' => $document->created_at ? DisplayTime::format($document->created_at) : null,
-            ])
+            ->map(function (PoDocument $document) use (&$next) {
+                $active = $document->status === PoDocumentStatus::Active;
+                $from = null;
+                $to = null;
+
+                if ($active && $next !== null) {
+                    if ($document->page_count === null || $document->page_count < 1) {
+                        $next = null;
+                    } else {
+                        $from = $next;
+                        $to = $next + $document->page_count - 1;
+                        $next = $to + 1;
+                    }
+                }
+
+                return [
+                    'id' => $document->id,
+                    'sort_order' => $document->sort_order,
+                    'type' => $document->type->label(),
+                    'original_name' => $document->original_name,
+                    'size_bytes' => $document->size_bytes,
+                    'status' => $document->status->value,
+                    'page_from' => $from,
+                    'page_to' => $to,
+                    'void_reason' => $active ? null : $document->void_reason,
+                    'uploaded_by' => $document->uploader?->name,
+                    'uploaded_at' => $document->created_at ? DisplayTime::format($document->created_at) : null,
+                ];
+            })
+            ->when(! $includeVoid, fn ($rows) => $rows->filter(fn (array $row) => $row['status'] === PoDocumentStatus::Active->value))
             ->values()
             ->all();
+    }
+
+    /**
+     * Writes the files of one new document (the PDF, and the uploaded image when there is one) to the
+     * private disk and creates its row. Used by upload() and replace(); both run it inside their
+     * transaction, and clean up $written themselves when anything fails.
+     *
+     * @param  'pdf'|'jpg'|'png'  $kind
+     * @param  list<string>  $written  collects every path written, so the caller can delete them on failure
+     */
+    private function persist(
+        PurchaseOrder $locked,
+        UploadedFile $file,
+        PoDocumentType $type,
+        User $actor,
+        string $kind,
+        ?string $pdfBytes,
+        Filesystem $disk,
+        string $directory,
+        string $name,
+        int $order,
+        ?int $deliveryId,
+        array &$written,
+    ): PoDocument {
+        $storedPath = "{$directory}/{$name}.pdf";
+        $originalPath = null;
+        $written[] = $storedPath;
+
+        if ($pdfBytes === null) {
+            $this->stored($disk->putFileAs($directory, $file, "{$name}.pdf"));
+        } else {
+            $originalPath = "{$directory}/{$name}.{$kind}";
+            $written[] = $originalPath;
+            $this->stored($disk->put($storedPath, $pdfBytes));
+            $this->stored($disk->putFileAs($directory, $file, "{$name}.{$kind}"));
+        }
+
+        return PoDocument::create([
+            'purchase_order_id' => $locked->getKey(),
+            'delivery_id' => $deliveryId,
+            'type' => $type,
+            'original_name' => $this->cleanName($file->getClientOriginalName()),
+            'stored_path' => $storedPath,
+            'original_path' => $originalPath,
+            'mime' => self::MIME[$kind],
+            'size_bytes' => (int) $file->getSize(),
+            'uploaded_by' => $actor->getKey(),
+            'sort_order' => $order,
+        ]);
+    }
+
+    /**
+     * The document, locked, and only if it belongs to this PO and is still active.
+     *
+     * @throws ValidationException error key "form"
+     */
+    private function lockActiveDocument(PurchaseOrder $locked, PoDocument $document): PoDocument
+    {
+        $target = PoDocument::query()
+            ->whereKey($document->getKey())
+            ->where('purchase_order_id', $locked->getKey())
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        if ($target->status !== PoDocumentStatus::Active) {
+            throw ValidationException::withMessages(['form' => 'That document is already void.']);
+        }
+
+        return $target;
+    }
+
+    /** status, void_reason, voided_by and voided_at are not mass-assignable on purpose: set here only. */
+    private function markVoid(PoDocument $document, string $reason, User $actor): void
+    {
+        $document->status = PoDocumentStatus::Void;
+        $document->void_reason = mb_substr($reason, 0, 500);
+        $document->voided_by = $actor->getKey();
+        $document->voided_at = now();
+        $document->save();
     }
 
     /** The PO row, locked for the rest of the transaction. */
