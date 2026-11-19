@@ -21,6 +21,7 @@ use App\Services\PurchaseOrderService;
 use App\Support\DisplayTime;
 use App\Support\Money;
 use App\Support\PoDocumentRule;
+use App\Support\ScheduleSplit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -98,6 +99,7 @@ class PurchaseOrderController extends Controller
             'supplierOptions' => $this->service->supplierChoices(),
             'dueDateRules' => $this->dueDateRules(),
             'procurementModes' => $this->procurementModes(),
+            'maxDateColumns' => ScheduleSplit::maxDateColumns(),
         ]);
     }
 
@@ -119,6 +121,7 @@ class PurchaseOrderController extends Controller
             'supplierOptions' => $this->service->supplierChoices($po->supplier_id),
             'dueDateRules' => $this->dueDateRules(),
             'procurementModes' => $this->procurementModes(),
+            'maxDateColumns' => ScheduleSplit::maxDateColumns(),
         ]);
     }
 
@@ -295,6 +298,7 @@ class PurchaseOrderController extends Controller
             'items' => $items,
             'total' => Money::format($totalCents),
             'schedules' => $po->schedules->map(fn ($s) => $s->scheduled_date->toDateString())->values(),
+            'schedule_split' => $this->splitData($po),
             'extensions' => $po->extensions->map(fn (PoExtension $e) => [
                 'id' => $e->id,
                 'extra_days' => $e->extra_days,
@@ -437,6 +441,36 @@ class PurchaseOrderController extends Controller
     }
 
     /**
+     * The quantity of each line per delivery column (step 3.3c), or null when the PO has no split.
+     * The quantity maps are keyed by the id of the line (po_items.id). The first column, "within the
+     * delivery term", is term_quantities; its heading number is delivery_term_days.
+     *
+     * @return array{columns: list<array{id: int, date: string, quantities: array<int, int>}>, term_quantities: array<int, int|null>}|null
+     */
+    private function splitData(PurchaseOrder $po): ?array
+    {
+        $hasTerm = $po->items->contains(fn (PoItem $item) => $item->term_quantity !== null);
+        $hasCells = $po->schedules->contains(fn ($schedule) => $schedule->quantities->isNotEmpty());
+
+        if (! $hasTerm && ! $hasCells) {
+            return null;
+        }
+
+        return [
+            'columns' => $po->schedules->map(fn ($schedule) => [
+                'id' => $schedule->id,
+                'date' => $schedule->scheduled_date->toDateString(),
+                'quantities' => $schedule->quantities
+                    ->mapWithKeys(fn ($cell) => [$cell->po_item_id => (int) $cell->quantity])
+                    ->all(),
+            ])->values()->all(),
+            'term_quantities' => $po->items
+                ->mapWithKeys(fn (PoItem $item) => [$item->id => $item->term_quantity])
+                ->all(),
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function formData(PurchaseOrder $po): array
@@ -470,7 +504,8 @@ class PurchaseOrderController extends Controller
                 'specifications' => $item->specifications,
             ])->values(),
             'schedule_dates' => $po->schedules->map(fn ($s) => $s->scheduled_date->toDateString())->values(),
+            'schedule_split' => $this->splitData($po),
             'extension_days' => $po->extensions->pluck('extra_days')->values(),
         ];
     }
-}
+}

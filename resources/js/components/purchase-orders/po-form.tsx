@@ -1,4 +1,4 @@
-import { Link, useForm } from '@inertiajs/react';
+import { Link, useForm, usePage } from '@inertiajs/react';
 import { Check, Plus, Trash2, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 import ConfirmDialog from '@/components/admin/confirm-dialog';
@@ -6,6 +6,16 @@ import InputError from '@/components/input-error';
 import ItemSearchBox from '@/components/purchase-orders/item-search-box';
 import type { CatalogHit } from '@/components/purchase-orders/item-search-box';
 import { formatPhp } from '@/components/purchase-orders/po-format';
+import ScheduleSplitEditor, {
+    buildSplit,
+    cellQuantity,
+    emptySplit,
+    nextColumnKey,
+    parseQty,
+    splitProblems,
+    termQuantity,
+} from '@/components/purchase-orders/schedule-split-editor';
+import type { ScheduleSplitData, SplitState } from '@/components/purchase-orders/schedule-split-editor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -47,6 +57,7 @@ export type EditablePo = {
     status_label: string;
     items: EditableLine[];
     schedule_dates: string[];
+    schedule_split?: ScheduleSplitData | null;
     extension_days: number[];
 };
 
@@ -282,6 +293,17 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, procuremen
     const errors = form.errors as Record<string, string | undefined>;
     const [removeIndex, setRemoveIndex] = useState<number | null>(null);
 
+    // Step 3.3c: the quantity of each line per delivery column. Kept apart from the form data, so it is
+    // only sent while the switch is on. The limit on date columns comes from the server (config).
+    const [split, setSplit] = useState<SplitState>(() => buildSplit(purchaseOrder?.schedule_split, initial.items));
+    const [confirmSplitOff, setConfirmSplitOff] = useState(false);
+    const maxDateColumns = usePage<{ maxDateColumns?: number }>().props.maxDateColumns ?? 4;
+    const termDays = parseInt(form.data.delivery_term_days, 10) || 0;
+    const splitLines = form.data.items.map((line) => ({ key: line.key, label: line.description, ordered: parseInt(line.quantity_ordered, 10) || 0 }));
+    const splitBlocked = splitProblems(split, splitLines, termDays, maxDateColumns).length > 0;
+    const splitHasQuantities =
+        split.on && (Object.values(split.term).some((v) => parseQty(v) > 0) || split.columns.some((c) => Object.values(c.qty).some((v) => parseQty(v) > 0)));
+
     const extensionDays = purchaseOrder?.extension_days ?? [];
     const dueDate = previewDueDate(form.data.emailed_date, form.data.delivery_term_days, dueDateRules, extensionDays);
     const totalCents = form.data.items.reduce((sum, line) => sum + lineCents(line), 0);
@@ -327,6 +349,32 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, procuremen
             form.data.schedule_dates.map((d, i) => (i === index ? value : d)),
         );
 
+    // Turning the split on keeps the dates already chosen as columns (quantities start at 0).
+    const turnSplitOn = () => {
+        const dates = Array.from(new Set(form.data.schedule_dates.filter((d) => d !== '')));
+
+        setSplit({ on: true, term: {}, columns: dates.map((date) => ({ id: null, key: nextColumnKey(), date, qty: {} })) });
+    };
+
+    // Turning it off keeps the dates; the quantities are removed when the PO is saved.
+    const turnSplitOff = () => {
+        form.setData(
+            'schedule_dates',
+            split.columns.map((c) => c.date).filter((d) => d !== ''),
+        );
+        setSplit(emptySplit);
+    };
+
+    const toggleSplit = (checked: boolean) => {
+        if (checked) {
+            turnSplitOn();
+        } else if (splitHasQuantities) {
+            setConfirmSplitOff(true);
+        } else {
+            turnSplitOff();
+        }
+    };
+
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -344,7 +392,21 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, procuremen
                 manufacturer: l.manufacturer,
                 country_of_origin: l.country_of_origin,
                 specifications: l.specifications,
+                // Step 3.3c: only while the split is on (a save without the key removes the split).
+                ...(split.on ? { term_quantity: termQuantity(split, l.key, termDays) } : {}),
             })),
+            // With the split on, the date columns carry the dates and the quantities (matched to the lines by
+            // position); the flat date list is not sent.
+            ...(split.on
+                ? {
+                      schedule_dates: [],
+                      schedule_columns: split.columns.map((column) => ({
+                          id: column.id,
+                          date: column.date,
+                          quantities: data.items.map((l) => cellQuantity(column, l.key)),
+                      })),
+                  }
+                : {}),
         }));
 
         if (mode === 'create') {
@@ -701,64 +763,85 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, procuremen
                 <CardHeader>
                     <CardTitle>Schedule Term</CardTitle>
                     <CardDescription>
-                        The dates the supplier is expected to deliver the items above (for example one date per batch). Optional. There can be no more dates than
-                        units ordered.
+                        The dates the supplier is expected to deliver the items above (for example one date per batch). Optional. Turn on the split to also say
+                        how many units of each line arrive on each date; the printed Delivery Schedule (form 04A) needs it.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                    {form.data.schedule_dates.length === 0 && <p className="text-sm text-muted-foreground">No scheduled dates.</p>}
+                    <label className="flex items-start gap-2 text-sm">
+                        <input type="checkbox" className="mt-0.5 size-4" checked={split.on} onChange={(e) => toggleSplit(e.target.checked)} />
+                        <span>
+                            <span className="font-medium">Split the quantity of each line per delivery date</span>
+                            <span className="block text-muted-foreground">Every line must add up to its quantity ordered. Zero is allowed.</span>
+                        </span>
+                    </label>
 
-                    {form.data.schedule_dates.map((date, index) => (
-                        <div key={index} className="grid gap-1">
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="date"
-                                    aria-label={`Scheduled date ${index + 1}`}
-                                    className={`${control} max-w-48`}
-                                    value={date}
-                                    onChange={(e) => updateDate(index, e.target.value)}
-                                />
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    aria-label={`Remove scheduled date ${index + 1}`}
-                                    onClick={() =>
-                                        form.setData(
-                                            'schedule_dates',
-                                            form.data.schedule_dates.filter((_, i) => i !== index),
-                                        )
-                                    }
-                                >
-                                    <Trash2 className="size-4" />
-                                </Button>
-                            </div>
-                            <InputError message={errors[`schedule_dates.${index}`]} />
-                        </div>
-                    ))}
+                    {split.on ? (
+                        <ScheduleSplitEditor
+                            lines={splitLines}
+                            split={split}
+                            onChange={setSplit}
+                            termDays={termDays}
+                            maxColumns={maxDateColumns}
+                            errors={errors}
+                        />
+                    ) : (
+                        <>
+                            {form.data.schedule_dates.length === 0 && <p className="text-sm text-muted-foreground">No scheduled dates.</p>}
 
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={form.data.schedule_dates.length >= totalQuantity}
-                        onClick={() => form.setData('schedule_dates', [...form.data.schedule_dates, ''])}
-                    >
-                        <Plus className="size-4" /> Add date
-                    </Button>
+                            {form.data.schedule_dates.map((date, index) => (
+                                <div key={index} className="grid gap-1">
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="date"
+                                            aria-label={`Scheduled date ${index + 1}`}
+                                            className={`${control} max-w-48`}
+                                            value={date}
+                                            onChange={(e) => updateDate(index, e.target.value)}
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            aria-label={`Remove scheduled date ${index + 1}`}
+                                            onClick={() =>
+                                                form.setData(
+                                                    'schedule_dates',
+                                                    form.data.schedule_dates.filter((_, i) => i !== index),
+                                                )
+                                            }
+                                        >
+                                            <Trash2 className="size-4" />
+                                        </Button>
+                                    </div>
+                                    <InputError message={errors[`schedule_dates.${index}`]} />
+                                </div>
+                            ))}
 
-                    <p className={`text-sm ${tooManyDates ? 'text-destructive' : 'text-muted-foreground'}`}>
-                        {totalQuantity === 0
-                            ? 'Add items first. The number of dates cannot be more than the total quantity ordered.'
-                            : `${dateCount} ${dateCount === 1 ? 'date' : 'dates'} for ${totalQuantity} ${totalQuantity === 1 ? 'unit' : 'units'} ordered (at most ${totalQuantity}).`}
-                        {tooManyDates && ' Remove dates or increase the quantity to save.'}
-                    </p>
-                    <InputError message={errors.schedule_dates} />
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={form.data.schedule_dates.length >= totalQuantity}
+                                onClick={() => form.setData('schedule_dates', [...form.data.schedule_dates, ''])}
+                            >
+                                <Plus className="size-4" /> Add date
+                            </Button>
+
+                            <p className={`text-sm ${tooManyDates ? 'text-destructive' : 'text-muted-foreground'}`}>
+                                {totalQuantity === 0
+                                    ? 'Add items first. The number of dates cannot be more than the total quantity ordered.'
+                                    : `${dateCount} ${dateCount === 1 ? 'date' : 'dates'} for ${totalQuantity} ${totalQuantity === 1 ? 'unit' : 'units'} ordered (at most ${totalQuantity}).`}
+                                {tooManyDates && ' Remove dates or increase the quantity to save.'}
+                            </p>
+                            <InputError message={errors.schedule_dates} />
+                        </>
+                    )}
                 </CardContent>
             </Card>
 
             <div className="flex items-center gap-3">
-                <Button type="submit" disabled={form.processing || tooManyDates}>
+                <Button type="submit" disabled={form.processing || (!split.on && tooManyDates) || splitBlocked}>
                     {mode === 'create' ? 'Create PO' : 'Save changes'}
                 </Button>
                 <Button variant="outline" asChild>
@@ -785,6 +868,19 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, procuremen
                     setRemoveIndex(null);
                 }}
             />
+
+            <ConfirmDialog
+                open={confirmSplitOff}
+                onOpenChange={setConfirmSplitOff}
+                title="Turn the split off?"
+                description="The quantities per date are removed when you save the changes. The dates stay."
+                confirmLabel="Turn off"
+                destructive
+                onConfirm={() => {
+                    turnSplitOff();
+                    setConfirmSplitOff(false);
+                }}
+            />
         </form>
     );
-}
+}

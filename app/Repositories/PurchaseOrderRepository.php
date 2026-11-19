@@ -118,7 +118,7 @@ class PurchaseOrderRepository extends BaseRepository implements PurchaseOrderRep
             'items' => fn ($query) => $query->orderBy('id'),
             'items.category:id,name',
             'items.unit:id,name',
-            'schedules',
+            'schedules.quantities',
             'extensions.approver:id,name',
         ]);
     }
@@ -131,7 +131,7 @@ class PurchaseOrderRepository extends BaseRepository implements PurchaseOrderRep
             'items.item:id,name,is_active',
             'items.category:id,name',
             'items.unit:id,name',
-            'schedules',
+            'schedules.quantities',
             'extensions:id,purchase_order_id,extra_days',
         ]);
     }
@@ -318,4 +318,4 @@ class PurchaseOrderRepository extends BaseRepository implements PurchaseOrderRep
         // Stable order for rows with the same value.
         $query->orderBy('purchase_orders.id');
     }
-}
+}

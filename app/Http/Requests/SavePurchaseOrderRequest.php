@@ -59,6 +59,14 @@ class SavePurchaseOrderRequest extends FormRequest
             'schedule_dates' => ['nullable', 'array', 'max:50'],
             'schedule_dates.*' => ['required', 'date_format:Y-m-d', 'distinct'],
 
+            // Step 3.3c: the split of each line's quantity per delivery column (optional). The business
+            // rules (sums, limits) are in App\Support\ScheduleSplit; these are only the shapes.
+            'schedule_columns' => ['nullable', 'array', 'max:50'],
+            'schedule_columns.*.id' => ['nullable', 'integer'],
+            'schedule_columns.*.date' => ['required', 'date_format:Y-m-d', 'distinct'],
+            'schedule_columns.*.quantities' => ['required', 'array', 'max:200'],
+            'schedule_columns.*.quantities.*' => ['required', 'integer', 'min:0', 'max:100000000'],
+
             'items' => ['required', 'array', 'min:1', 'max:200'],
             'items.*.id' => ['nullable', 'integer'],
             'items.*.item_id' => ['nullable', 'integer', 'exists:items,id'],
@@ -70,6 +78,7 @@ class SavePurchaseOrderRequest extends FormRequest
             'items.*.manufacturer' => ['nullable', 'string', 'max:150'],
             'items.*.country_of_origin' => ['nullable', 'string', 'max:100'],
             'items.*.specifications' => ['nullable', 'string', 'max:500'],
+            'items.*.term_quantity' => ['nullable', 'integer', 'min:0', 'max:100000000'],
         ];
     }
 
@@ -160,6 +169,7 @@ class SavePurchaseOrderRequest extends FormRequest
             'items.required' => 'Add at least one item.',
             'items.min' => 'Add at least one item.',
             'schedule_dates.*.distinct' => 'This date is repeated.',
+            'schedule_columns.*.date.distinct' => 'This date is repeated.',
             'items.*.unit_price.decimal' => 'Use at most 2 decimal places.',
         ];
     }
@@ -180,6 +190,9 @@ class SavePurchaseOrderRequest extends FormRequest
             'mode_of_procurement' => 'mode of procurement',
             'remarks' => 'free-text line',
             'schedule_dates.*' => 'schedule date',
+            'schedule_columns.*.date' => 'delivery date',
+            'schedule_columns.*.quantities.*' => 'quantity',
+            'items.*.term_quantity' => 'quantity within the delivery term',
             'items.*.description' => 'description',
             'items.*.unit_price' => 'unit price',
             'items.*.quantity_ordered' => 'quantity',
@@ -207,4 +220,4 @@ class SavePurchaseOrderRequest extends FormRequest
 
         return $po instanceof PurchaseOrder ? $po : null;
     }
-}
+}

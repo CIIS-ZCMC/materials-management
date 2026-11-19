@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -14,7 +15,9 @@ use Illuminate\Support\Carbon;
  * if the catalog changes. item_id is null for a BizBox line that is not in
  * the catalog. stock_no is a snapshot of the catalog stock number; brand,
  * manufacturer, country_of_origin and specifications are typed per line
- * (they are printed on the PO forms).
+ * (they are printed on the PO forms). term_quantity (step 3.3c) is the part of
+ * quantity_ordered due within the PO's delivery term from receipt (first column of form 04A);
+ * null = the PO has no split. The rest is split per date in po_schedule_items.
  *
  * @property int $id
  * @property int $purchase_order_id
@@ -24,6 +27,7 @@ use Illuminate\Support\Carbon;
  * @property int $unit_id
  * @property string $unit_price
  * @property int $quantity_ordered
+ * @property int|null $term_quantity
  * @property string|null $stock_no
  * @property string|null $brand
  * @property string|null $manufacturer
@@ -38,7 +42,7 @@ use Illuminate\Support\Carbon;
  */
 #[Fillable([
     'purchase_order_id', 'item_id', 'description', 'category_id', 'unit_id', 'unit_price', 'quantity_ordered',
-    'stock_no', 'brand', 'manufacturer', 'country_of_origin', 'specifications',
+    'stock_no', 'brand', 'manufacturer', 'country_of_origin', 'specifications', 'term_quantity',
 ])]
 class PoItem extends Model
 {
@@ -53,6 +57,7 @@ class PoItem extends Model
         return [
             'unit_price' => 'decimal:2',
             'quantity_ordered' => 'integer',
+            'term_quantity' => 'integer',
         ];
     }
 
@@ -86,5 +91,15 @@ class PoItem extends Model
     public function unit(): BelongsTo
     {
         return $this->belongsTo(Unit::class);
+    }
+
+    /**
+     * This line's quantity on each scheduled date (step 3.3c). Empty for a PO without a split.
+     *
+     * @return HasMany<PoScheduleItem, $this>
+     */
+    public function scheduleQuantities(): HasMany
+    {
+        return $this->hasMany(PoScheduleItem::class, 'po_item_id');
     }
 }

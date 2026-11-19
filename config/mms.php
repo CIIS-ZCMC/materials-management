@@ -60,6 +60,12 @@
 |                                             old POs. The Fund Cluster, Funds
 |                                             Available and ORS/BURS block is not
 |                                             stored; it prints blank.
+|                   print.max_date_columns    The most delivery-date columns of the printed
+|                                             Delivery Schedule (form 04A) and of the
+|                                             quantity split on the PO form (step 3.3c).
+|                                             MMS_MAX_DATE_COLUMNS in .env, default 4.
+|                                             The scans show 2 plus the term column; raise
+|                                             it only after a 04A print test shows it fits.
 |                   Values come from the November 2026 scans (docs/PO-TEMPLATE.md);
 |                   the office must confirm them.
 | audit.subject_types  Model class => label shown in the Audit Log filter.
@@ -175,6 +181,9 @@ return [
             ],
         ],
 
+        // Step 3.3c: the most date columns on form 04A (and in the PO form's quantity split).
+        'max_date_columns' => (int) env('MMS_MAX_DATE_COLUMNS', 4),
+
         // The three values seen on the scans. Procurement confirms the full list.
         'procurement_modes' => [
             'Competitive/Public Bidding',
@@ -223,6 +232,7 @@ return [
             'remarks' => 'Free-text line',
             'items' => 'Items',
             'schedule' => 'Schedule dates',
+            'quantities' => 'Delivery quantities',
             'extension' => 'Extension',
             'documents' => 'Documents',
         ],
@@ -249,4 +259,4 @@ return [
         ],
     ],
 
-];
+];

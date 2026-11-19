@@ -10,6 +10,7 @@ use App\Models\PurchaseOrder;
 use App\Support\Audit;
 use App\Support\Money;
 use App\Support\PoEditRule;
+use App\Support\ScheduleSplit;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
@@ -159,13 +160,14 @@ class PurchaseOrderService
     {
         return DB::transaction(function () use ($data) {
             $this->assertDatesFitQuantity($data);
+            ScheduleSplit::check($data);
 
             $po = new PurchaseOrder(Arr::only($data, self::HEADER_FIELDS));
             $po->recalculateDueDate();
             $po->save();
 
-            $this->syncLines($po, $data['items'], new EloquentCollection);
-            $this->syncSchedules($po, $data['schedule_dates'] ?? [], []);
+            $lineIds = $this->syncLines($po, $data['items'], new EloquentCollection);
+            $this->syncDeliverySchedule($po, $data, $lineIds, []);
 
             $po->load([
                 'supplier:id,name',
@@ -181,6 +183,12 @@ class PurchaseOrderService
 
             if ($dates !== []) {
                 $new['schedule'] = implode(', ', $dates);
+            }
+
+            $quantities = ScheduleSplit::diff([], ScheduleSplit::snapshot($po->id));
+
+            if ($quantities !== null) {
+                $new['quantities'] = $quantities['new'];
             }
 
             Audit::log('created', $po, "Created PO {$po->auditLabel()}", new: $new, log: 'po');
@@ -207,12 +215,14 @@ class PurchaseOrderService
             }
 
             $this->assertDatesFitQuantity($data);
+            ScheduleSplit::check($data);
 
             $oldHeader = $this->header($po);
             $oldLines = $this->lineSnapshots($po->items);
             $oldCount = $po->items->count();
             $oldTotal = $this->total($po->items);
             $oldDates = $this->dates($po);
+            $oldSplit = ScheduleSplit::snapshot($po->id);
 
             $po->fill(Arr::only($data, self::HEADER_FIELDS));
 
@@ -222,8 +232,8 @@ class PurchaseOrderService
 
             $po->save();
 
-            $this->syncLines($po, $data['items'], $po->items);
-            $this->syncSchedules($po, $data['schedule_dates'] ?? [], $oldDates);
+            $lineIds = $this->syncLines($po, $data['items'], $po->items);
+            $this->syncDeliverySchedule($po, $data, $lineIds, $oldDates);
 
             $po->load([
                 'supplier:id,name',
@@ -272,6 +282,14 @@ class PurchaseOrderService
                 ]));
             }
 
+            // Step 3.3c: the quantity of each line per delivery column (only the lines that changed).
+            $quantities = ScheduleSplit::diff($oldSplit, ScheduleSplit::snapshot($po->id));
+
+            if ($quantities !== null) {
+                $old['quantities'] = $quantities['old'];
+                $new['quantities'] = $quantities['new'];
+            }
+
             if ($old !== [] || $new !== []) {
                 $po->touch();
 
@@ -289,8 +307,9 @@ class PurchaseOrderService
      *
      * @param  list<array<string, mixed>>  $lines
      * @param  EloquentCollection<int, PoItem>  $existing
+     * @return list<int> the ids of the saved lines, in the same order as $lines (step 3.3c links quantities by position)
      */
-    private function syncLines(PurchaseOrder $po, array $lines, EloquentCollection $existing): void
+    private function syncLines(PurchaseOrder $po, array $lines, EloquentCollection $existing): array
     {
         $catalog = $this->orders->catalogItemsByIds(
             collect($lines)->pluck('item_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all(),
@@ -319,6 +338,8 @@ class PurchaseOrderService
         }
 
         $po->items()->whereNotIn('id', $keep)->delete();
+
+        return $keep;
     }
 
     /**
@@ -356,6 +377,28 @@ class PurchaseOrderService
         }
 
         return $values;
+    }
+
+    /**
+     * Saves the delivery dates. With the split (step 3.3c: the request carries "schedule_columns") the
+     * dates and the quantity of each line per date are saved together by ScheduleSplit. Without it the
+     * flat "schedule_dates" are saved as before, and any stored split is removed so quantities that no
+     * longer add up cannot stay behind.
+     *
+     * @param  array<string, mixed>  $data  validated input
+     * @param  list<int>  $lineIds  ids of the saved lines, in the order of $data['items']
+     * @param  list<string>  $existingDates  the PO's dates before this save (Y-m-d)
+     */
+    private function syncDeliverySchedule(PurchaseOrder $po, array $data, array $lineIds, array $existingDates): void
+    {
+        if (ScheduleSplit::isActive($data)) {
+            ScheduleSplit::sync($po, $data, $lineIds);
+
+            return;
+        }
+
+        ScheduleSplit::clear($po);
+        $this->syncSchedules($po, $data['schedule_dates'] ?? [], $existingDates);
     }
 
     /**
@@ -505,4 +548,4 @@ class PurchaseOrderService
 
         return $date !== false && $date->format('Y-m-d') === $value ? $value : '';
     }
-}
+}

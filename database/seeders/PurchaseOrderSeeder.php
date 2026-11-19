@@ -6,6 +6,7 @@ use App\Enums\PurchaseOrderSource;
 use App\Enums\PurchaseOrderStatus;
 use App\Models\Item;
 use App\Models\ItemCategory;
+use App\Models\PoScheduleItem;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
 use App\Models\Unit;
@@ -28,6 +29,10 @@ use Illuminate\Support\Collection;
  * Step 4.5: every PO also gets P.R. no., CAF no., a mode of procurement and sometimes a
  * free-text line; catalog lines get the stock number, and medical lines brand, manufacturer
  * and country of origin (other lines sometimes a specification text).
+ *
+ * Step 3.3c: every fourth PO that has dates also gets a split of each line's quantity per delivery
+ * column (the first column "within the delivery term" plus one per date; zeros included), built so
+ * it follows the real rules: every line adds up exactly and every date delivers something.
  *
  * Due-date bands are approximate: with term_counting = "working" the due date
  * can land a day or two before the band's target.
@@ -199,6 +204,10 @@ class PurchaseOrderSeeder extends Seeder
             }
         }
 
+        if ($n % 4 === 0) {
+            $this->createSplit($po);
+        }
+
         if ($withExtension) {
             $po->extensions()->create([
                 'extra_days' => $extraDays,
@@ -209,6 +218,60 @@ class PurchaseOrderSeeder extends Seeder
                 'old_due_date' => $baseDue,
                 'new_due_date' => $due,
             ]);
+        }
+    }
+
+    /**
+     * Splits every line's quantity over the term column and the date columns (step 3.3c).
+     * Skipped when the PO has no dates or fewer units than dates (a date must deliver at least one unit).
+     * Written directly because this is seed data; real saves go through ScheduleSplit.
+     */
+    private function createSplit(PurchaseOrder $po): void
+    {
+        $lines = $po->items()->orderBy('id')->get()->values();
+        $schedules = $po->schedules()->get()->values(); // oldest date first
+        $dates = $schedules->count();
+
+        if ($dates === 0 || $lines->sum('quantity_ordered') < $dates) {
+            return;
+        }
+
+        $remaining = $lines->map(fn ($line) => (int) $line->quantity_ordered)->all();
+        $cells = array_fill(0, $lines->count(), array_fill(0, $dates, 0));
+
+        // Every date takes one unit from the first line that still has units left.
+        for ($j = 0; $j < $dates; $j++) {
+            foreach ($remaining as $i => $left) {
+                if ($left > 0) {
+                    $cells[$i][$j]++;
+                    $remaining[$i]--;
+
+                    break;
+                }
+            }
+        }
+
+        // The rest of each line: half within the delivery term, the other half over the dates.
+        foreach ($lines as $i => $line) {
+            $term = intdiv($remaining[$i], 2);
+            $rest = $remaining[$i] - $term;
+            $each = intdiv($rest, $dates);
+
+            for ($j = 0; $j < $dates; $j++) {
+                $cells[$i][$j] += $each;
+            }
+
+            $cells[$i][0] += $rest - $each * $dates;
+
+            $line->update(['term_quantity' => $term]);
+
+            foreach ($schedules as $j => $schedule) {
+                PoScheduleItem::query()->create([
+                    'po_schedule_id' => $schedule->id,
+                    'po_item_id' => $line->id,
+                    'quantity' => $cells[$i][$j],
+                ]);
+            }
         }
     }
 
@@ -299,4 +362,4 @@ class PurchaseOrderSeeder extends Seeder
 
         return $extraDays > 0 ? DueDate::extend($due, $extraDays) : $due;
     }
-}
+}

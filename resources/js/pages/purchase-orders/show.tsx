@@ -12,6 +12,7 @@ import type { HistoryEntry } from '@/components/purchase-orders/po-history-list'
 import PoReviewActions from '@/components/purchase-orders/po-review-actions';
 import PoStatusBadge from '@/components/purchase-orders/po-status-badge';
 import RecordExtensionDialog from '@/components/purchase-orders/record-extension-dialog';
+import type { ScheduleSplitData } from '@/components/purchase-orders/schedule-split-editor';
 import ResponsiveList from '@/components/responsive-list';
 import type { ListColumn } from '@/components/responsive-list';
 import { Badge } from '@/components/ui/badge';
@@ -68,6 +69,7 @@ type PurchaseOrder = {
     items: ItemRow[];
     total: string;
     schedules: string[];
+    schedule_split: ScheduleSplitData | null;
     extensions: ExtensionRow[];
     edit: { allowed: boolean; reason: string | null };
     extension: { allowed: boolean; reason: string | null; max_days: number; counting: string };
@@ -117,6 +119,61 @@ function LineDetails({ item }: { item: ItemRow }) {
                 </span>
             ))}
         </>
+    );
+}
+
+// Step 3.3c: how many units of each line arrive in each delivery column (what form 04A prints).
+// Shown only when the PO uses the split. The first column is "within the delivery term from receipt".
+function QuantitySplit({ po }: { po: PurchaseOrder }) {
+    const split = po.schedule_split;
+
+    if (!split) {
+        return null;
+    }
+
+    const hasTermColumn = Object.values(split.term_quantities).some((quantity) => quantity !== null);
+    const days = po.delivery_term_days ?? 0;
+
+    return (
+        <section className="space-y-2">
+            <h3 className="text-base font-medium">Quantity per delivery date</h3>
+            <div className="space-y-3">
+                {po.items.map((item, index) => {
+                    const cells: { label: string; quantity: number }[] = [];
+
+                    if (hasTermColumn) {
+                        cells.push({ label: `Within ${days} ${days === 1 ? 'day' : 'days'} from receipt`, quantity: split.term_quantities[String(item.id)] ?? 0 });
+                    }
+
+                    for (const column of split.columns) {
+                        cells.push({ label: column.date, quantity: column.quantities[String(item.id)] ?? 0 });
+                    }
+
+                    const placed = cells.reduce((sum, cell) => sum + cell.quantity, 0);
+
+                    return (
+                        <div key={item.id} className="space-y-2 rounded-md border p-3">
+                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                                <p className="min-w-0 text-sm font-medium break-words">
+                                    Line {index + 1}: {item.description}
+                                </p>
+                                <p className={`text-sm tabular-nums ${placed === item.quantity_ordered ? 'text-muted-foreground' : 'text-destructive'}`}>
+                                    {placed} of {item.quantity_ordered}
+                                </p>
+                            </div>
+                            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                {cells.map((cell) => (
+                                    <div key={cell.label}>
+                                        <dt className="text-xs text-muted-foreground">{cell.label}</dt>
+                                        <dd className="font-medium tabular-nums">{cell.quantity.toLocaleString('en-US')}</dd>
+                                    </div>
+                                ))}
+                            </dl>
+                        </div>
+                    );
+                })}
+            </div>
+        </section>
     );
 }
 
@@ -277,6 +334,8 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                             )}
                         </section>
 
+                        <QuantitySplit po={po} />
+
                         <section className="space-y-2">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <h3 className="text-base font-medium">Extension history</h3>
@@ -320,4 +379,4 @@ PurchaseOrderShow.layout = {
         { title: 'Purchase Orders', href: '/purchase-orders' },
         { title: 'Purchase order', href: '#' },
     ],
-};
+};
