@@ -19,8 +19,17 @@ use Illuminate\Validation\ValidationException;
 
 class PurchaseOrderService
 {
-    /** The only PO columns a user types (status, due_date, closed_at, source are never typed). */
-    private const HEADER_FIELDS = ['po_number', 'supplier_id', 'po_date', 'emailed_date', 'delivery_term_days'];
+    /**
+     * The only PO columns a user types (status, due_date, closed_at, source are never typed).
+     * pr_no, caf_no, mode_of_procurement and remarks are the print fields of step 4.5.
+     */
+    private const HEADER_FIELDS = [
+        'po_number', 'supplier_id', 'po_date', 'emailed_date', 'delivery_term_days',
+        'pr_no', 'caf_no', 'mode_of_procurement', 'remarks',
+    ];
+
+    /** Line columns typed per line and printed on the forms (step 4.5). */
+    private const LINE_PRINT_FIELDS = ['stock_no', 'brand', 'manufacturer', 'country_of_origin', 'specifications'];
 
     private const LINE_LABELS = [
         'description' => 'description',
@@ -29,6 +38,11 @@ class PurchaseOrderService
         'unit' => 'unit',
         'unit_price' => 'unit price',
         'quantity_ordered' => 'quantity',
+        'stock_no' => 'stock no.',
+        'brand' => 'brand',
+        'manufacturer' => 'manufacturer',
+        'country_of_origin' => 'country of origin',
+        'specifications' => 'specifications',
     ];
 
     public function __construct(
@@ -308,6 +322,10 @@ class PurchaseOrderService
     }
 
     /**
+     * Print fields are written only when the line carries the key, so a request that
+     * leaves them out never wipes stored values. When a line gets a (new) catalog item
+     * and has no stock number typed, the catalog stock number is copied (a snapshot).
+     *
      * @param  array<string, mixed>  $line
      * @param  Collection<int, \App\Models\Item>  $catalog
      * @return array<string, mixed>
@@ -320,6 +338,12 @@ class PurchaseOrderService
             'quantity_ordered' => (int) $line['quantity_ordered'],
         ];
 
+        foreach (self::LINE_PRINT_FIELDS as $field) {
+            if (array_key_exists($field, $line)) {
+                $values[$field] = filled($line[$field]) ? trim((string) $line[$field]) : null;
+            }
+        }
+
         $itemId = ($line['item_id'] ?? null) !== null ? (int) $line['item_id'] : null;
 
         if ($itemId !== null && ($row === null || $row->item_id !== $itemId)) {
@@ -328,6 +352,7 @@ class PurchaseOrderService
             $values['item_id'] = $itemId;
             $values['category_id'] = $item->category_id;
             $values['unit_id'] = $item->unit_id;
+            $values['stock_no'] ??= $item->stock_no;
         }
 
         return $values;
@@ -369,6 +394,10 @@ class PurchaseOrderService
             'emailed_date' => $po->emailed_date?->toDateString(),
             'delivery_term_days' => $po->delivery_term_days,
             'due_date' => $po->due_date?->toDateString(),
+            'pr_no' => $po->pr_no,
+            'caf_no' => $po->caf_no,
+            'mode_of_procurement' => $po->mode_of_procurement,
+            'remarks' => $po->remarks,
         ];
     }
 
@@ -394,6 +423,11 @@ class PurchaseOrderService
                 'unit' => $line->unit->name,
                 'unit_price' => Money::format(Money::cents($line->unit_price)),
                 'quantity_ordered' => (int) $line->quantity_ordered,
+                'stock_no' => $line->stock_no ?? '—',
+                'brand' => $line->brand ?? '—',
+                'manufacturer' => $line->manufacturer ?? '—',
+                'country_of_origin' => $line->country_of_origin ?? '—',
+                'specifications' => $line->specifications ?? '—',
             ],
         ]);
     }
@@ -441,7 +475,7 @@ class PurchaseOrderService
         return $count.' '.($count === 1 ? 'line' : 'lines').', '.Money::php($totalCents);
     }
 
-        /**
+    /**
      * Every schedule date delivers at least one unit, so a PO cannot have more
      * dates than units ordered (sum of quantity_ordered over all lines).
      *

@@ -16,13 +16,14 @@ use Illuminate\Support\Carbon;
  * @property string $name
  * @property int $category_id
  * @property int $unit_id
+ * @property string|null $stock_no
  * @property bool $is_active
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read ItemCategory $category
  * @property-read Unit $unit
  */
-#[Fillable(['name', 'category_id', 'unit_id', 'is_active'])]
+#[Fillable(['name', 'category_id', 'unit_id', 'stock_no', 'is_active'])]
 class Item extends Model
 {
     /** @use HasFactory<ItemFactory> */

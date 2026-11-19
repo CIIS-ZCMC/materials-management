@@ -24,6 +24,10 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $emailed_date
  * @property int|null $delivery_term_days
  * @property Carbon|null $due_date
+ * @property string|null $pr_no
+ * @property string|null $caf_no
+ * @property string|null $mode_of_procurement
+ * @property string|null $remarks
  * @property PurchaseOrderSource $source
  * @property string|null $external_id
  * @property PurchaseOrderStatus $status
@@ -45,8 +49,14 @@ use Illuminate\Support\Carbon;
  *   (fully delivered or cancelled/terminated, AND paid) and cleared if
  *   that stops being true. Nobody types it.
  * - consolidated_*: written only by PoConsolidatedPdfService (the combined PDF of the PO, step 4.3).
+ *
+ * pr_no, caf_no, mode_of_procurement and remarks (step 4.5) are typed by Procurement and are
+ * printed on the PO forms.
  */
-#[Fillable(['po_number', 'supplier_id', 'po_date', 'emailed_date', 'delivery_term_days', 'source', 'external_id'])]
+#[Fillable([
+    'po_number', 'supplier_id', 'po_date', 'emailed_date', 'delivery_term_days', 'source', 'external_id',
+    'pr_no', 'caf_no', 'mode_of_procurement', 'remarks',
+])]
 class PurchaseOrder extends Model
 {
     /** @use HasFactory<PurchaseOrderFactory> */

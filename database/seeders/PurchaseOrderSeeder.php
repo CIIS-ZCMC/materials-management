@@ -25,6 +25,10 @@ use Illuminate\Support\Collection;
  * Status and closed_at are written directly because this is seed data; real
  * changes go through StatusTransition::apply().
  *
+ * Step 4.5: every PO also gets P.R. no., CAF no., a mode of procurement and sometimes a
+ * free-text line; catalog lines get the stock number, and medical lines brand, manufacturer
+ * and country of origin (other lines sometimes a specification text).
+ *
  * Due-date bands are approximate: with term_counting = "working" the due date
  * can land a day or two before the band's target.
  *   due_in_10_45 / due_in_1_3 ... days from today
@@ -61,6 +65,9 @@ class PurchaseOrderSeeder extends Seeder
         'T-shirt with Collar' => ['Linen and Textiles', 'Piece', 488.00],
         'High Back Chair' => ['Hospital Furniture', 'Unit', 5545.00],
     ];
+
+    /** Categories whose lines print brand, manufacturer and country of origin (like the medicines on the scans). */
+    private const MEDICAL_CATEGORIES = ['Medical Supplies', 'Surgical Supplies', 'Laboratory Supplies'];
 
     private const EXTENSION_REASONS = [
         'Supplier asked for more time: stock arriving late.',
@@ -156,6 +163,8 @@ class PurchaseOrderSeeder extends Seeder
             ? array_shift($this->specialNumbers)
             : $poDate->format('y-m').'-'.sprintf('%04d', 900 + $n);
 
+        $year = ($poDate ?? Carbon::today())->format('y');
+
         $po = PurchaseOrder::factory()->create([
             'po_number' => $poNumber,
             'supplier_id' => $this->suppliers->random()->id,
@@ -163,6 +172,11 @@ class PurchaseOrderSeeder extends Seeder
             'emailed_date' => $emailed,
             'delivery_term_days' => $term,
             'due_date' => $due,
+            // Print fields (step 4.5), shaped like the scans: P.R. 26-03-0112, CAF 2026-0860.
+            'pr_no' => $isSpecial ? null : sprintf('%s-%02d-%04d', $year, fake()->numberBetween(1, 12), fake()->numberBetween(1, 999)),
+            'caf_no' => $isSpecial ? null : sprintf('%d-%04d', Carbon::today()->year, fake()->numberBetween(1, 999)),
+            'mode_of_procurement' => $isSpecial ? null : fake()->randomElement((array) config('mms.print.procurement_modes')),
+            'remarks' => fake()->randomElement(['for Pharmacy use', 'Baked Goods', null, null]),
             'source' => $isBizbox ? PurchaseOrderSource::BizBox : PurchaseOrderSource::Manual,
             'external_id' => $isBizbox ? sprintf('BB-%d-%05d', Carbon::today()->year, 10000 + $n) : null,
             'status' => $status,
@@ -211,6 +225,8 @@ class PurchaseOrderSeeder extends Seeder
                 'unit_id' => $item->unit_id,
                 'unit_price' => $equipment ? fake()->numberBetween(5, 400) * 1000 : fake()->randomFloat(2, 15, 2500),
                 'quantity_ordered' => $equipment ? fake()->numberBetween(1, 5) : fake()->numberBetween(10, 500),
+                'stock_no' => $item->stock_no,
+                ...$this->printedDetails($item),
             ]);
         }
 
@@ -227,6 +243,24 @@ class PurchaseOrderSeeder extends Seeder
                 'quantity_ordered' => fake()->numberBetween(1, 200),
             ]);
         }
+    }
+
+    /**
+     * Brand, manufacturer and country for medical lines; a short specification for the others.
+     *
+     * @return array<string, string|null>
+     */
+    private function printedDetails(Item $item): array
+    {
+        if (in_array($item->category->name, self::MEDICAL_CATEGORIES, true)) {
+            return [
+                'brand' => fake()->company(),
+                'manufacturer' => fake()->company(),
+                'country_of_origin' => fake()->randomElement(['Philippines', 'India', 'China', 'Germany', 'Japan']),
+            ];
+        }
+
+        return ['specifications' => fake()->randomElement([null, 'Standard quality, new and unused'])];
     }
 
     private function targetDue(string $band): ?Carbon

@@ -26,6 +26,11 @@ export type EditableLine = {
     unit: string;
     unit_price: string;
     quantity_ordered: number;
+    stock_no: string | null;
+    brand: string | null;
+    manufacturer: string | null;
+    country_of_origin: string | null;
+    specifications: string | null;
 };
 
 export type EditablePo = {
@@ -35,6 +40,10 @@ export type EditablePo = {
     po_date: string | null;
     emailed_date: string | null;
     delivery_term_days: number | null;
+    pr_no: string | null;
+    caf_no: string | null;
+    mode_of_procurement: string | null;
+    remarks: string | null;
     status_label: string;
     items: EditableLine[];
     schedule_dates: string[];
@@ -45,11 +54,12 @@ type Props = {
     mode: 'create' | 'edit';
     supplierOptions: SupplierOption[];
     dueDateRules: DueDateRules;
+    procurementModes: string[];
     purchaseOrder?: EditablePo;
 };
 
 // One item row of the form. `key`, `item_name`, `item_status`, `category` and `unit` are only
-// for the screen; just id, item_id, description, unit_price and quantity_ordered are sent.
+// for the screen; the other fields are sent to the server.
 type FormLine = {
     key: string;
     id: number | null;
@@ -61,6 +71,11 @@ type FormLine = {
     unit: string;
     unit_price: string;
     quantity_ordered: string;
+    stock_no: string;
+    brand: string;
+    manufacturer: string;
+    country_of_origin: string;
+    specifications: string;
 };
 
 type PoFormData = {
@@ -69,6 +84,10 @@ type PoFormData = {
     po_date: string;
     emailed_date: string;
     delivery_term_days: string;
+    pr_no: string;
+    caf_no: string;
+    mode_of_procurement: string;
+    remarks: string;
     schedule_dates: string[];
     items: FormLine[];
 };
@@ -91,11 +110,28 @@ const blankLine = (): FormLine => ({
     unit: '',
     unit_price: '',
     quantity_ordered: '1',
+    stock_no: '',
+    brand: '',
+    manufacturer: '',
+    country_of_origin: '',
+    specifications: '',
 });
 
 function buildInitial(po?: EditablePo): PoFormData {
     if (!po) {
-        return { supplier_id: '', po_number: '', po_date: '', emailed_date: '', delivery_term_days: '', schedule_dates: [], items: [blankLine()] };
+        return {
+            supplier_id: '',
+            po_number: '',
+            po_date: '',
+            emailed_date: '',
+            delivery_term_days: '',
+            pr_no: '',
+            caf_no: '',
+            mode_of_procurement: '',
+            remarks: '',
+            schedule_dates: [],
+            items: [blankLine()],
+        };
     }
 
     return {
@@ -104,6 +140,10 @@ function buildInitial(po?: EditablePo): PoFormData {
         po_date: po.po_date ?? '',
         emailed_date: po.emailed_date ?? '',
         delivery_term_days: po.delivery_term_days === null ? '' : String(po.delivery_term_days),
+        pr_no: po.pr_no ?? '',
+        caf_no: po.caf_no ?? '',
+        mode_of_procurement: po.mode_of_procurement ?? '',
+        remarks: po.remarks ?? '',
         schedule_dates: po.schedule_dates,
         items: po.items.map((i) => ({
             key: nextKey(),
@@ -116,6 +156,11 @@ function buildInitial(po?: EditablePo): PoFormData {
             unit: i.unit,
             unit_price: i.unit_price,
             quantity_ordered: String(i.quantity_ordered),
+            stock_no: i.stock_no ?? '',
+            brand: i.brand ?? '',
+            manufacturer: i.manufacturer ?? '',
+            country_of_origin: i.country_of_origin ?? '',
+            specifications: i.specifications ?? '',
         })),
     };
 }
@@ -230,7 +275,7 @@ function LinkedItem({ line }: { line: FormLine }) {
 // from the server and give the button an onClick. While false, the button and its box stay disabled.
 const BIZBOX_FETCH_AVAILABLE: boolean = false;
 
-export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOrder }: Props) {
+export default function PoForm({ mode, supplierOptions, dueDateRules, procurementModes, purchaseOrder }: Props) {
     // useForm keeps every field (including the rows) in one object and sends it on submit.
     const [initial] = useState(() => buildInitial(purchaseOrder));
     const form = useForm<PoFormData>(initial);
@@ -240,6 +285,10 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOr
     const extensionDays = purchaseOrder?.extension_days ?? [];
     const dueDate = previewDueDate(form.data.emailed_date, form.data.delivery_term_days, dueDateRules, extensionDays);
     const totalCents = form.data.items.reduce((sum, line) => sum + lineCents(line), 0);
+
+    // The list of modes, plus the value this PO already has when it is no longer in the list.
+    const currentMode = form.data.mode_of_procurement;
+    const modeChoices = currentMode !== '' && !procurementModes.includes(currentMode) ? [currentMode, ...procurementModes] : procurementModes;
 
     // Rule: every delivery date delivers at least one unit, so dates can never outnumber the units ordered.
     const totalQuantity = form.data.items.reduce((sum, line) => sum + (parseInt(line.quantity_ordered, 10) || 0), 0);
@@ -260,6 +309,7 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOr
         );
 
     // A catalog choice fills description, category and unit. The description stays editable.
+    // The stock number is emptied so the server copies the new catalog item's stock number.
     const chooseItem = (index: number, hit: CatalogHit) =>
         updateLine(index, {
             item_id: hit.id,
@@ -268,6 +318,7 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOr
             description: hit.name,
             category: hit.category,
             unit: hit.unit,
+            stock_no: '',
         });
 
     const updateDate = (index: number, value: string) =>
@@ -288,6 +339,11 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOr
                 description: l.description,
                 unit_price: l.unit_price,
                 quantity_ordered: l.quantity_ordered,
+                stock_no: l.stock_no,
+                brand: l.brand,
+                manufacturer: l.manufacturer,
+                country_of_origin: l.country_of_origin,
+                specifications: l.specifications,
             })),
         }));
 
@@ -306,7 +362,7 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOr
                 </div>
             )}
 
-                        {mode === 'create' && (
+            {mode === 'create' && (
                 <Card className="gap-3 py-4">
                     <CardHeader className="gap-0.5">
                         <CardTitle className="text-base">How is this PO made?</CardTitle>
@@ -429,7 +485,56 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOr
                 </CardContent>
             </Card>
 
+            <Card>
+                <CardHeader>
+                    <CardTitle>Printed on the purchase order</CardTitle>
+                    <CardDescription>These appear on the printed PO. All are optional; leave them empty if you do not have them yet.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4 sm:grid-cols-2">
+                    <div className="grid gap-2">
+                        <Label htmlFor="pr_no">P.R. no.</Label>
+                        <Input id="pr_no" value={form.data.pr_no} onChange={(e) => form.setData('pr_no', e.target.value)} maxLength={50} placeholder="26-03-0112" />
+                        <InputError message={errors.pr_no} />
+                    </div>
 
+                    <div className="grid gap-2">
+                        <Label htmlFor="caf_no">CAF no.</Label>
+                        <Input id="caf_no" value={form.data.caf_no} onChange={(e) => form.setData('caf_no', e.target.value)} maxLength={50} placeholder="2026-0860" />
+                        <InputError message={errors.caf_no} />
+                    </div>
+
+                    <div className="grid gap-2 sm:col-span-2">
+                        <Label htmlFor="mode_of_procurement">Mode of procurement</Label>
+                        <select
+                            id="mode_of_procurement"
+                            className={control}
+                            value={form.data.mode_of_procurement}
+                            onChange={(e) => form.setData('mode_of_procurement', e.target.value)}
+                        >
+                            <option value="">Not set</option>
+                            {modeChoices.map((m) => (
+                                <option key={m} value={m}>
+                                    {m}
+                                </option>
+                            ))}
+                        </select>
+                        <InputError message={errors.mode_of_procurement} />
+                    </div>
+
+                    <div className="grid gap-2 sm:col-span-2">
+                        <Label htmlFor="remarks">Free-text line</Label>
+                        <Input
+                            id="remarks"
+                            value={form.data.remarks}
+                            onChange={(e) => form.setData('remarks', e.target.value)}
+                            maxLength={255}
+                            placeholder="For example: for Pharmacy use"
+                        />
+                        <p className="text-sm text-muted-foreground">Printed under the items.</p>
+                        <InputError message={errors.remarks} />
+                    </div>
+                </CardContent>
+            </Card>
 
             <Card>
                 <CardHeader>
@@ -516,6 +621,62 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOr
                                         />
                                         <InputError message={field('quantity_ordered')} />
                                     </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor={`stock-${line.key}`}>Stock/Property no.</Label>
+                                        <Input
+                                            id={`stock-${line.key}`}
+                                            value={line.stock_no}
+                                            onChange={(e) => updateLine(index, { stock_no: e.target.value })}
+                                            maxLength={50}
+                                        />
+                                        <p className="text-sm text-muted-foreground">Leave empty to use the catalog item's number when you save.</p>
+                                        <InputError message={field('stock_no')} />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor={`country-${line.key}`}>Country of origin</Label>
+                                        <Input
+                                            id={`country-${line.key}`}
+                                            value={line.country_of_origin}
+                                            onChange={(e) => updateLine(index, { country_of_origin: e.target.value })}
+                                            maxLength={100}
+                                        />
+                                        <InputError message={field('country_of_origin')} />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor={`brand-${line.key}`}>Brand name</Label>
+                                        <Input
+                                            id={`brand-${line.key}`}
+                                            value={line.brand}
+                                            onChange={(e) => updateLine(index, { brand: e.target.value })}
+                                            maxLength={150}
+                                        />
+                                        <InputError message={field('brand')} />
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor={`manufacturer-${line.key}`}>Manufacturer</Label>
+                                        <Input
+                                            id={`manufacturer-${line.key}`}
+                                            value={line.manufacturer}
+                                            onChange={(e) => updateLine(index, { manufacturer: e.target.value })}
+                                            maxLength={150}
+                                        />
+                                        <InputError message={field('manufacturer')} />
+                                    </div>
+
+                                    <div className="grid gap-2 sm:col-span-2">
+                                        <Label htmlFor={`specifications-${line.key}`}>Supplier's specifications (free text)</Label>
+                                        <Input
+                                            id={`specifications-${line.key}`}
+                                            value={line.specifications}
+                                            onChange={(e) => updateLine(index, { specifications: e.target.value })}
+                                            maxLength={500}
+                                        />
+                                        <InputError message={field('specifications')} />
+                                    </div>
                                 </div>
 
                                 <p className="text-right text-sm">
@@ -536,7 +697,7 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOr
                 </CardContent>
             </Card>
 
-                        <Card>
+            <Card>
                 <CardHeader>
                     <CardTitle>Schedule Term</CardTitle>
                     <CardDescription>
@@ -597,7 +758,7 @@ export default function PoForm({ mode, supplierOptions, dueDateRules, purchaseOr
             </Card>
 
             <div className="flex items-center gap-3">
-                    <Button type="submit" disabled={form.processing || tooManyDates}>
+                <Button type="submit" disabled={form.processing || tooManyDates}>
                     {mode === 'create' ? 'Create PO' : 'Save changes'}
                 </Button>
                 <Button variant="outline" asChild>

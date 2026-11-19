@@ -7,7 +7,8 @@ use Illuminate\Database\Seeder;
 
 /**
  * DEMO DATA ONLY. Refuses to run in production.
- * Safe to run again: suppliers are matched by name.
+ * Safe to run again: suppliers are matched by name. The print fields (TIN, contact
+ * number, supply chain role, step 4.5) are filled on suppliers that do not have a TIN yet.
  */
 class SupplierSeeder extends Seeder
 {
@@ -64,10 +65,18 @@ class SupplierSeeder extends Seeder
         foreach ($names as $index => $name) {
             $details = Supplier::factory()->make()->only(['email', 'contact_person', 'address']);
 
-            Supplier::firstOrCreate(
+            $supplier = Supplier::firstOrCreate(
                 ['name' => $name],
                 $details + ['is_active' => ($index + 1) % 10 !== 0], // every 10th is inactive
             );
+
+            if ($supplier->tin === null) {
+                $supplier->update([
+                    'tin' => fake()->numerify('###-###-###-000'),
+                    'contact_no' => fake()->numerify('09#########'),
+                    'supply_chain_role' => fake()->randomElement(['Distributor', 'Manufacturer', 'Retailer', null]),
+                ]);
+            }
         }
 
         $this->command->info('Fake suppliers seeded: '.count($names));

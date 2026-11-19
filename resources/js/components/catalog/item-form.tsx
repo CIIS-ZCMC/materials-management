@@ -15,6 +15,7 @@ export type EditableItem = {
     unit_id: number;
     unit: string | null;
     unit_code: string | null;
+    stock_no: string | null;
     is_active: boolean;
 };
 
@@ -35,6 +36,7 @@ export default function ItemForm({ mode, options, item }: Props) {
         name: item?.name ?? '',
         category_id: item ? String(item.category_id) : '',
         unit_id: item ? String(item.unit_id) : '',
+        stock_no: item?.stock_no ?? '',
     });
 
     const selectedCategory = options.categories.find((c) => String(c.id) === form.data.category_id);
@@ -108,6 +110,21 @@ export default function ItemForm({ mode, options, item }: Props) {
                             </SelectContent>
                         </Select>
                         <InputError message={form.errors.unit_id} />
+                    </div>
+
+                    <div className="grid gap-2 sm:col-span-2">
+                        <Label htmlFor="stock_no">Stock/Property no.</Label>
+                        <Input
+                            id="stock_no"
+                            value={form.data.stock_no}
+                            onChange={(e) => form.setData('stock_no', e.target.value)}
+                            maxLength={50}
+                            placeholder="For example: MED00084"
+                        />
+                        <p className="text-sm text-muted-foreground">
+                            Optional. It is copied to a PO line when this item is chosen, and printed in the first column of the PO.
+                        </p>
+                        <InputError message={form.errors.stock_no} />
                     </div>
                 </CardContent>
             </Card>

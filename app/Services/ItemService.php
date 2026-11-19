@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\DB;
 
 class ItemService
 {
-    private const FIELDS = ['name', 'category_id', 'unit_id'];
+    private const FIELDS = ['name', 'category_id', 'unit_id', 'stock_no'];
 
     public function __construct(
         private readonly ItemRepositoryInterface $items,
@@ -78,7 +78,7 @@ class ItemService
                 'created',
                 $item,
                 "Created item {$item->auditLabel()}",
-                new: $this->present($values),
+                new: array_filter($this->present($values), fn ($value) => $value !== null),
                 log: 'catalog',
             );
 

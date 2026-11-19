@@ -16,11 +16,14 @@ use Illuminate\Support\Carbon;
  * @property string|null $email
  * @property string|null $contact_person
  * @property string|null $address
+ * @property string|null $tin
+ * @property string|null $contact_no
+ * @property string|null $supply_chain_role
  * @property bool $is_active
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['name', 'email', 'contact_person', 'address', 'is_active'])]
+#[Fillable(['name', 'email', 'contact_person', 'address', 'tin', 'contact_no', 'supply_chain_role', 'is_active'])]
 class Supplier extends Model
 {
     /** @use HasFactory<SupplierFactory> */

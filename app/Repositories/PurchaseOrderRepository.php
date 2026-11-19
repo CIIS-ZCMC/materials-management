@@ -113,7 +113,8 @@ class PurchaseOrderRepository extends BaseRepository implements PurchaseOrderRep
     public function loadDetail(PurchaseOrder $purchaseOrder): PurchaseOrder
     {
         return $purchaseOrder->load([
-            'supplier:id,name',
+            // The supplier fields the printed forms use are shown on the detail page (step 4.5).
+            'supplier:id,name,address,tin,contact_no,supply_chain_role',
             'items' => fn ($query) => $query->orderBy('id'),
             'items.category:id,name',
             'items.unit:id,name',

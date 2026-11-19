@@ -26,6 +26,11 @@ type ItemRow = {
     quantity_ordered: number;
     line_total: string;
     in_catalog: boolean;
+    stock_no: string | null;
+    brand: string | null;
+    manufacturer: string | null;
+    country_of_origin: string | null;
+    specifications: string | null;
 };
 
 type ExtensionRow = {
@@ -42,12 +47,22 @@ type PurchaseOrder = {
     id: number;
     po_number: string;
     supplier: string;
+    supplier_details: {
+        address: string | null;
+        tin: string | null;
+        contact_no: string | null;
+        supply_chain_role: string | null;
+    };
     source: string;
     external_id: string | null;
     po_date: string | null;
     emailed_date: string | null;
     delivery_term_days: number | null;
     due_date: string | null;
+    pr_no: string | null;
+    caf_no: string | null;
+    mode_of_procurement: string | null;
+    remarks: string | null;
     status: { value: string; label: string };
     closed_at: string | null;
     items: ItemRow[];
@@ -84,8 +99,39 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
     );
 }
 
+// The printed details of a line (brand, manufacturer, country, specifications), as small grey lines
+// under the description. Shows nothing when the line has none of them.
+function LineDetails({ item }: { item: ItemRow }) {
+    const parts = [
+        item.brand ? `Brand: ${item.brand}` : null,
+        item.manufacturer ? `Manufacturer: ${item.manufacturer}` : null,
+        item.country_of_origin ? `Country of origin: ${item.country_of_origin}` : null,
+        item.specifications ? `Specifications: ${item.specifications}` : null,
+    ].filter((part): part is string => part !== null);
+
+    return (
+        <>
+            {parts.map((part) => (
+                <span key={part} className="block text-xs font-normal text-muted-foreground">
+                    {part}
+                </span>
+            ))}
+        </>
+    );
+}
+
 const itemColumns: ListColumn<ItemRow>[] = [
-    { key: 'description', header: 'Description', card: 'title', cell: (i) => i.description },
+    {
+        key: 'description',
+        header: 'Description',
+        card: 'title',
+        cell: (i) => (
+            <>
+                <span className="block">{i.description}</span>
+                <LineDetails item={i} />
+            </>
+        ),
+    },
     {
         key: 'catalog',
         header: 'Catalog',
@@ -93,6 +139,7 @@ const itemColumns: ListColumn<ItemRow>[] = [
         cell: (i) => (i.in_catalog ? 'In catalog' : <Badge variant="outline">Not in catalog</Badge>),
         cardCell: (i) => (i.in_catalog ? null : <Badge variant="outline">Not in catalog</Badge>),
     },
+    { key: 'stock_no', header: 'Stock no.', cell: (i) => orDash(i.stock_no) },
     { key: 'category', header: 'Category', cell: (i) => i.category },
     { key: 'unit', header: 'Unit', cell: (i) => i.unit },
     { key: 'quantity_ordered', header: 'Qty ordered', className: 'tabular-nums', cell: (i) => i.quantity_ordered },
@@ -176,6 +223,10 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                     <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
                         <Field label="PO number">{po.po_number}</Field>
                         <Field label="Supplier">{po.supplier}</Field>
+                        <Field label="Supplier address">{orDash(po.supplier_details.address)}</Field>
+                        <Field label="Supplier TIN">{orDash(po.supplier_details.tin)}</Field>
+                        <Field label="Supplier contact no.">{orDash(po.supplier_details.contact_no)}</Field>
+                        <Field label="Supply chain role">{orDash(po.supplier_details.supply_chain_role)}</Field>
                         <Field label="Source">{po.source}</Field>
                         <Field label="External ID">{orDash(po.external_id)}</Field>
                         <Field label="PO date">{orDash(po.po_date)}</Field>
@@ -186,6 +237,10 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                             {/* The overdue badge goes here in step 8.3 */}
                             <OverdueBadgeSlot />
                         </Field>
+                        <Field label="P.R. no.">{orDash(po.pr_no)}</Field>
+                        <Field label="CAF no.">{orDash(po.caf_no)}</Field>
+                        <Field label="Mode of procurement">{orDash(po.mode_of_procurement)}</Field>
+                        <Field label="Free-text line">{orDash(po.remarks)}</Field>
                         <Field label="Status">
                             <PoStatusBadge status={po.status} />
                         </Field>

@@ -1,4 +1,6 @@
-# Phase 4 plan, updated after step 4.3
+# Phase 4 plan, updated after step 4.4
+
+UPDATE 2026-11-18: step 4.4 (print spike) is done, verdict: dompdf is workable (see docs/PO-PRINT-SPIKE.md, CONTEXT.md decisions 32 and 33). The boss wants the PO printed directly from the system, so 4.5, 4.6 and 4.7 go ahead. NAZ is ignored. Procurement prints, signs on paper, scans and uploads the scan as the PO Bundle. Changes below are marked UPDATED. Attach only the latest docs/PO-PRINT-SPIKE.md, never the old one.
 
 MMS Procurement Monitoring System. Updated 2026-11-17, after steps 4.2, 4.2b and 4.3 were built and their tests passed (PoDocumentTest 45 passed, PoConsolidatedPdfTest 28 passed, including the two real office scans with the real qpdf).
 
@@ -23,7 +25,7 @@ This file replaces the "Steps" part of PHASE-4-PLAN-updated.docx from step 4.2 o
 | 4.2 | Built, tests pass | Table `po_documents`, upload service, qpdf check, image to PDF page (FPDF). CONTEXT.md decision 29. |
 | 4.2b | Built, tests pass (45) | Document rules, Submit to Reviewer, remove, reorder, per-file View. Decision 30. |
 | 4.3 | Built, tests pass (28), browser checks pending | One combined PDF per PO rebuilt after every change, page index, void, replace, permission `documents.view-originals`. Decision 31. |
-| 4.4 | Not started | Print spike. Can run at any time. |
+| 4.4 | Done 2026-11-18 | Print spike. dompdf workable for both forms; the 04A extra-page spill fix is to confirm before 4.7. docs/PO-PRINT-SPIKE.md, decision 32. |
 | 4.5, 3.3c, 4.6, 4.7 | Not started | See below. |
 
 **Before the next step:** do the browser checks of step 4.3 (PROGRESS.md, "Step 4.3 checks") and tell the session what you saw. The tests prove the logic; only the browser shows the viewer, the buttons and the mixed page sizes.
@@ -35,16 +37,18 @@ This file replaces the "Steps" part of PHASE-4-PLAN-updated.docx from step 4.2 o
 | 1 | Install qpdf | Done (C:\tools\qpdf\bin\qpdf.exe on the dev machine). **Still to confirm for the hospital server** (IT). |
 | 2 | Library setasign/fpdf | Done (used by `ImagePdf`). |
 | 3 | jpg, jpeg, png uploads | Done. |
-| 4 | dompdf (PO print) | Open. Spike first (4.4). |
+| 4 | dompdf (PO print) | UPDATED: spike done, workable. Added to the project in 4.6 (tell the user before adding it). |
 | 5 | Paper size of each form | Open (Procurement question 2). |
 | 6 | Fonts | Open. |
 | 7 | Document types Notice of Delivery and Guarantee Letter | Done (added in 4.2b). |
 | 8 | Which form is used when | Open (Procurement question 1). |
-| 9 | Permission for printing | Open. Recommendation: reuse `po.view`. |
+| 9 | Permission for printing | UPDATED: recommendation now `po.create` (Procurement only), not `po.view`. To confirm. |
 | 10 | Migrations from PO-TEMPLATE.md section 7 | Open. |
-| 11 (new) | Is the printed PO stored as a document? | Open, decided in 4.6. Recommendation: no (option A). |
+| 11 (new) | Is the printed PO stored as a document? | UPDATED: recommendation option A (no), because the signed scan is uploaded as the PO Bundle. Decided in 4.6. |
 
 ## Carry-over notes (not blocking, but do not lose them)
+
+0. **UPDATED 2026-11-18, open and left open:** which documents MMS staff complete by hand besides DR, OR and IAR (for example a clearance), and whether the system only collects their signed scans or generates some. The answer is the "required supporting documents" list for step 5.3. Also confirm with Procurement: Print PO limited to Procurement (`po.create`), and the signed scan is the PO Bundle (question 15).
 
 1. **Phase 5 and the document rules.** `PoDocumentRule` allows adding documents only on draft, uploaded and escalated POs. Phase 5 uploads DR, OR and IAR on verified or later POs, with a `delivery_id`. Phase 5 needs its own rule for delivery documents; do not simply relax the PO Bundle rule.
 2. **Who may void in Phase 5.** Void and replace need `documents.void` AND `po.upload-files` today, so only Procurement can do it. The Encoder (who holds `documents.void` but not `po.upload-files`) cannot. Phase 5 must decide the Encoder's rule for DR, OR and IAR.
@@ -229,7 +233,7 @@ This file replaces the "Steps" part of PHASE-4-PLAN-updated.docx from step 4.2 o
 
 ### Files to attach
 
--   docs/PO-TEMPLATE.md and docs/PO-PRINT-SPIKE.md, plus the spike code it names
+-   docs/PO-TEMPLATE.md and the latest docs/PO-PRINT-SPIKE.md, plus the spike code from C:\print-spike: Form13.php, Paginator.php, Ttf.php, Fonts.php, Ab.php, Renderer.php, Config.php, Money.php, Paper.php, Html.php, AmountInWords.php (UPDATED)
 
 -   From the ZIP extracts: 01, 02. Logos: public/images/zcmc.png and DOH.png
 
@@ -289,7 +293,7 @@ This file replaces the "Steps" part of PHASE-4-PLAN-updated.docx from step 4.2 o
 
 ### Files to attach
 
--   docs/PO-TEMPLATE.md and docs/PO-PRINT-SPIKE.md
+-   docs/PO-TEMPLATE.md and the latest docs/PO-PRINT-SPIKE.md, plus Form04A.php from C:\print-spike (UPDATED, after the extra-page fix is confirmed)
 
 -   From the ZIP extracts: 03, 04. The approved Terms and Conditions text (or a born-digital copy)
 
@@ -334,11 +338,11 @@ The full list is in docs/PO-TEMPLATE.md section 9. These are the ones that block
 | Question | Topic | Blocks |
 |---|---|---|
 | Procurement 1 | Which form is used when (number of delivery dates, mode of procurement, or choice); can a PO switch form | 4.7 |
-| Procurement 2 | Paper of each form: A4 or long bond (8.5 x 13 in) | 4.4 |
+| Procurement 2 | Paper of each form: A4 or long bond (8.5 x 13 in) (both tested in 4.4; form 13 with 17 lines: 3 pages on long bond, 4 on A4) | 4.6 |
 | Procurement 3 | Who types TIN, contact number, supply chain role, P.R. No., CAF No., mode of procurement, stock number, brand and so on; allowed values | 4.5 |
-| Procurement 4 | The 04A column "7 Days from Rec. of P.O.", number of date columns, date format, quantities always stated | 3.3c |
+| Procurement 4 | UPDATED: "Rec." = received (confirmed 2026-11-18). Still open: is the 7 always the PO delivery term, number of date columns, date format (scan: m/d/yyyy), quantities always stated (recommended yes, zeros allowed) | 3.3c |
 | Procurement 5 | Supplier's Specifications: free text or brand, manufacturer, country; the last text line | 4.5 |
-| Procurement 12 | Born-digital copy or BizBox PDF export of each form | 4.4 (better look) |
+| Procurement 12 | Born-digital copy or BizBox PDF export of each form | Optional (better look than the Liberation fonts) |
 | Procurement 15 (new) | The printed PO: is it only a working copy, with the SIGNED paper copy scanned and uploaded as the PO Bundle? (This decides option A or B in 4.6.) | 4.6 |
 | Terms and Conditions | Approved text of the 04A Terms (clause numbers and sub-letters as they must print) | 4.7 |
 | Accounting 1 to 5 | Fund block, ORS/BURS, who types it, accountant name | 4.6 (prints blank until answered) |

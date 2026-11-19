@@ -6,16 +6,17 @@ import type { DueDateRules, SupplierOption } from '@/components/purchase-orders/
 type Props = {
     supplierOptions: SupplierOption[];
     dueDateRules: DueDateRules;
+    procurementModes: string[];
 };
 
-export default function PurchaseOrderCreate({ supplierOptions, dueDateRules }: Props) {
+export default function PurchaseOrderCreate({ supplierOptions, dueDateRules, procurementModes }: Props) {
     return (
         <>
             <Head title="New purchase order" />
 
             <div className="space-y-4 p-4 md:space-y-6">
                 <Heading title="New purchase order" description="Create a PO in the system with its items and delivery dates" />
-                <PoForm mode="create" supplierOptions={supplierOptions} dueDateRules={dueDateRules} />
+                <PoForm mode="create" supplierOptions={supplierOptions} dueDateRules={dueDateRules} procurementModes={procurementModes} />
             </div>
         </>
     );

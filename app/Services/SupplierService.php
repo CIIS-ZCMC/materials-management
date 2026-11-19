@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 
 class SupplierService
 {
-    private const FIELDS = ['name', 'email', 'contact_person', 'address'];
+    private const FIELDS = ['name', 'email', 'contact_person', 'address', 'tin', 'contact_no', 'supply_chain_role'];
 
     public function __construct(
         private readonly SupplierRepositoryInterface $suppliers,

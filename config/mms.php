@@ -40,6 +40,28 @@
 |                   today that is only a stub that throws "BizBox is not configured",
 |                   so leave it false until Phase 13. After changing .env:
 |                   php artisan config:clear
+| print.*           Fixed text of the printed PO forms (step 4.5; the print itself
+|                   is built in 4.6 and 4.7). Nothing here is typed per PO.
+|                   print.place_of_delivery   name and address lines of form 13.
+|                   print.payment_term        "Payment Term" text of form 13.
+|                   print.signatories         The Medical Center Chief, newest
+|                                             effective_from last. effective_from
+|                                             null = in office since before this
+|                                             list started. When the person changes,
+|                                             ADD a new entry; do not edit the old
+|                                             one, so old printouts stay explainable.
+|                   print.accountant          Printed in the fund block of form 13.
+|                   print.forms               Form number, revision and effectivity
+|                                             date of each form (printed in the
+|                                             footer or header).
+|                   print.procurement_modes   The choices of "Mode of Procurement"
+|                                             in the PO form. A PO stores the text,
+|                                             so changing this list never changes
+|                                             old POs. The Fund Cluster, Funds
+|                                             Available and ORS/BURS block is not
+|                                             stored; it prints blank.
+|                   Values come from the November 2026 scans (docs/PO-TEMPLATE.md);
+|                   the office must confirm them.
 | audit.subject_types  Model class => label shown in the Audit Log filter.
 |                   Later steps add Delivery, etc. here.
 | audit.fields      Property key => label for the "what changed" column.
@@ -118,6 +140,49 @@ return [
         'enabled' => filter_var(env('BIZBOX_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
+    'print' => [
+        'place_of_delivery' => [
+            'name' => 'Zamboanga City Medical Center',
+            'address' => 'Dr. Evangelista Street Sta. Catalina Zamboanga City Zamboanga Del Sur Philippines 7000',
+        ],
+
+        'payment_term' => 'Refer to Terms and Conditions',
+
+        // The Medical Center Chief who signs the PO. Add a new entry when the person changes.
+        'signatories' => [
+            [
+                'name' => 'AFDAL B. KUNTING, MD, MPH, FPCP',
+                'title' => 'Medical Center Chief II',
+                'effective_from' => null, // start date not known yet (name as printed on the Nov 2026 scans)
+            ],
+        ],
+
+        'accountant' => [
+            'name' => 'FRITZIE LYNN T. CABILIN',
+            'title' => 'Accountant IV - Accounting Section',
+        ],
+
+        'forms' => [
+            '13' => [
+                'number' => 'ZCMC-F-PROC-13',
+                'revision' => '12',
+                'effectivity_date' => '2025-02-24',
+            ],
+            '04A' => [
+                'number' => 'ZCMC-F-PROC-04A',
+                'revision' => '0',
+                'effectivity_date' => '2026-05-25',
+            ],
+        ],
+
+        // The three values seen on the scans. Procurement confirms the full list.
+        'procurement_modes' => [
+            'Competitive/Public Bidding',
+            'Nego. Proc. - Emergency Cases',
+            'Nego. Proc. - Small Value Procurement',
+        ],
+    ],
+
     'audit' => [
         'subject_types' => [
             \App\Models\User::class => 'User',
@@ -135,11 +200,15 @@ return [
             'email' => 'Email',
             'contact_person' => 'Contact person',
             'address' => 'Address',
+            'tin' => 'TIN',
+            'contact_no' => 'Contact no.',
+            'supply_chain_role' => 'Supply chain role',
             'role' => 'Role',
             'permissions' => 'Direct permissions',
             'category' => 'Category',
             'unit' => 'Unit',
             'code' => 'Short code',
+            'stock_no' => 'Stock/Property no.',
             'is_equipment' => 'Equipment category',
             'status' => 'Status',
             'po_number' => 'PO number',
@@ -148,6 +217,10 @@ return [
             'emailed_date' => 'Emailed date',
             'delivery_term_days' => 'Delivery term (days)',
             'due_date' => 'Due date',
+            'pr_no' => 'P.R. no.',
+            'caf_no' => 'CAF no.',
+            'mode_of_procurement' => 'Mode of procurement',
+            'remarks' => 'Free-text line',
             'items' => 'Items',
             'schedule' => 'Schedule dates',
             'extension' => 'Extension',

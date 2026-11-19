@@ -50,6 +50,12 @@ class SavePurchaseOrderRequest extends FormRequest
             'emailed_date' => ['nullable', 'date_format:Y-m-d'],
             'delivery_term_days' => ['nullable', 'integer', 'min:0', 'max:365'],
 
+            // Printed on the PO forms (step 4.5). All optional.
+            'pr_no' => ['nullable', 'string', 'max:50'],
+            'caf_no' => ['nullable', 'string', 'max:50'],
+            'mode_of_procurement' => ['nullable', 'string', 'max:100', Rule::in($this->allowedModes($po))],
+            'remarks' => ['nullable', 'string', 'max:255'],
+
             'schedule_dates' => ['nullable', 'array', 'max:50'],
             'schedule_dates.*' => ['required', 'date_format:Y-m-d', 'distinct'],
 
@@ -59,6 +65,11 @@ class SavePurchaseOrderRequest extends FormRequest
             'items.*.description' => ['required', 'string', 'max:255'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0', 'max:99999999999.99', 'decimal:0,2'],
             'items.*.quantity_ordered' => ['required', 'integer', 'min:1', 'max:100000000'],
+            'items.*.stock_no' => ['nullable', 'string', 'max:50'],
+            'items.*.brand' => ['nullable', 'string', 'max:150'],
+            'items.*.manufacturer' => ['nullable', 'string', 'max:150'],
+            'items.*.country_of_origin' => ['nullable', 'string', 'max:100'],
+            'items.*.specifications' => ['nullable', 'string', 'max:500'],
         ];
     }
 
@@ -145,6 +156,7 @@ class SavePurchaseOrderRequest extends FormRequest
             'po_number.regex' => 'Use letters, digits and - / . _ only, with no spaces.',
             'po_number.unique' => 'A purchase order with this number already exists.',
             'supplier_id.exists' => 'Choose an active supplier.',
+            'mode_of_procurement.in' => 'Choose a mode of procurement from the list.',
             'items.required' => 'Add at least one item.',
             'items.min' => 'Add at least one item.',
             'schedule_dates.*.distinct' => 'This date is repeated.',
@@ -163,11 +175,30 @@ class SavePurchaseOrderRequest extends FormRequest
             'po_date' => 'PO date',
             'emailed_date' => 'emailed date',
             'delivery_term_days' => 'delivery term',
+            'pr_no' => 'P.R. number',
+            'caf_no' => 'CAF number',
+            'mode_of_procurement' => 'mode of procurement',
+            'remarks' => 'free-text line',
             'schedule_dates.*' => 'schedule date',
             'items.*.description' => 'description',
             'items.*.unit_price' => 'unit price',
             'items.*.quantity_ordered' => 'quantity',
+            'items.*.stock_no' => 'stock/property number',
+            'items.*.country_of_origin' => 'country of origin',
         ];
+    }
+
+    /**
+     * The modes in config/mms.php, plus the value the PO already has (an old value
+     * that was removed from the list stays valid for that PO).
+     *
+     * @return list<string>
+     */
+    private function allowedModes(?PurchaseOrder $po): array
+    {
+        $modes = [...(array) config('mms.print.procurement_modes', []), $po?->mode_of_procurement];
+
+        return array_values(array_filter($modes, fn ($mode) => is_string($mode) && $mode !== ''));
     }
 
     private function currentPo(): ?PurchaseOrder

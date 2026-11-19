@@ -12,7 +12,9 @@ use Illuminate\Support\Carbon;
 /**
  * One line of a PO. The description is a snapshot, so the PO stays readable
  * if the catalog changes. item_id is null for a BizBox line that is not in
- * the catalog.
+ * the catalog. stock_no is a snapshot of the catalog stock number; brand,
+ * manufacturer, country_of_origin and specifications are typed per line
+ * (they are printed on the PO forms).
  *
  * @property int $id
  * @property int $purchase_order_id
@@ -22,6 +24,11 @@ use Illuminate\Support\Carbon;
  * @property int $unit_id
  * @property string $unit_price
  * @property int $quantity_ordered
+ * @property string|null $stock_no
+ * @property string|null $brand
+ * @property string|null $manufacturer
+ * @property string|null $country_of_origin
+ * @property string|null $specifications
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read PurchaseOrder $purchaseOrder
@@ -29,7 +36,10 @@ use Illuminate\Support\Carbon;
  * @property-read ItemCategory $category
  * @property-read Unit $unit
  */
-#[Fillable(['purchase_order_id', 'item_id', 'description', 'category_id', 'unit_id', 'unit_price', 'quantity_ordered'])]
+#[Fillable([
+    'purchase_order_id', 'item_id', 'description', 'category_id', 'unit_id', 'unit_price', 'quantity_ordered',
+    'stock_no', 'brand', 'manufacturer', 'country_of_origin', 'specifications',
+])]
 class PoItem extends Model
 {
     /** @use HasFactory<PoItemFactory> */

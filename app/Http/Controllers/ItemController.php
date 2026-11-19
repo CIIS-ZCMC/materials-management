@@ -99,6 +99,7 @@ class ItemController extends Controller
             'unit_id' => $item->unit_id,
             'unit' => $item->unit?->name,
             'unit_code' => $item->unit?->code,
+            'stock_no' => $item->stock_no,
             'is_active' => $item->is_active,
         ];
     }

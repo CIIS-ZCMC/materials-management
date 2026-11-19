@@ -50,6 +50,8 @@ class SaveItemRequest extends FormRequest
                     fn ($q) => $q->where(fn ($q) => $q->where('is_active', true)->orWhere('id', $keepUnit)),
                 ),
             ],
+            // Printed in the first column of form 13 (step 4.5). Optional.
+            'stock_no' => ['nullable', 'string', 'max:50'],
         ];
     }
 
@@ -64,6 +66,16 @@ class SaveItemRequest extends FormRequest
             'category_id.exists' => 'Choose an active category.',
             'unit_id.required' => 'Choose a unit.',
             'unit_id.exists' => 'Choose an active unit.',
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function attributes(): array
+    {
+        return [
+            'stock_no' => 'stock/property number',
         ];
     }
 }

@@ -30,6 +30,10 @@ class SaveSupplierRequest extends FormRequest
             'email' => ['nullable', 'string', 'email', 'max:255'],
             'contact_person' => ['nullable', 'string', 'max:255'],
             'address' => ['nullable', 'string', 'max:255'],
+            // Printed on the PO forms (step 4.5). All optional.
+            'tin' => ['nullable', 'string', 'max:30', 'regex:/^[0-9][0-9 -]*$/'],
+            'contact_no' => ['nullable', 'string', 'max:50'],
+            'supply_chain_role' => ['nullable', 'string', 'max:100'],
         ];
     }
 
@@ -40,6 +44,19 @@ class SaveSupplierRequest extends FormRequest
     {
         return [
             'name.unique' => 'A supplier with this name already exists.',
+            'tin.regex' => 'Use digits, spaces and hyphens only.',
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function attributes(): array
+    {
+        return [
+            'tin' => 'TIN',
+            'contact_no' => 'contact number',
+            'supply_chain_role' => 'supply chain role',
         ];
     }
 }

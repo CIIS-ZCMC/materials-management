@@ -10,6 +10,7 @@ use Illuminate\Database\Seeder;
 /**
  * Demo data only: 8 categories, 10 units, 60 hospital supply items.
  * Refuses to run in production. Safe to run again (matches by name).
+ * Every item gets a stock/property number (step 4.5) if it has none yet.
  */
 class CatalogSeeder extends Seeder
 {
@@ -57,6 +58,18 @@ class CatalogSeeder extends Seeder
                 ['is_equipment' => $isEquipment, 'is_active' => true],
             );
         }
+
+        // category => stock number prefix (the scans show codes like MED00084 and SUP11025)
+        $prefixes = [
+            'Medical Supplies' => 'MED',
+            'Surgical Supplies' => 'SUR',
+            'Laboratory Supplies' => 'LAB',
+            'Linen and Textiles' => 'LIN',
+            'Office Supplies' => 'SUP',
+            'Janitorial Supplies' => 'JAN',
+            'Medical and Laboratory Equipment' => 'EQP',
+            'Hospital Furniture' => 'FUR',
+        ];
 
         // category => [[item name, unit name], ...]
         $catalog = [
@@ -146,13 +159,20 @@ class CatalogSeeder extends Seeder
             foreach ($items as [$name, $unitName]) {
                 $n++;
 
-                Item::query()->firstOrCreate(
+                $stockNo = $prefixes[$categoryName].sprintf('%05d', $n);
+
+                $item = Item::query()->firstOrCreate(
                     ['name' => $name, 'unit_id' => $unitIds[$unitName]],
                     [
                         'category_id' => $categoryIds[$categoryName],
+                        'stock_no' => $stockNo,
                         'is_active' => $n % 20 !== 0, // every 20th item inactive, to see the badge
                     ],
                 );
+
+                if ($item->stock_no === null) {
+                    $item->update(['stock_no' => $stockNo]);
+                }
             }
         }
     }

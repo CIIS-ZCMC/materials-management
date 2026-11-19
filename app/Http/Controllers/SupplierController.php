@@ -91,6 +91,9 @@ class SupplierController extends Controller
             'email' => $supplier->email,
             'contact_person' => $supplier->contact_person,
             'address' => $supplier->address,
+            'tin' => $supplier->tin,
+            'contact_no' => $supplier->contact_no,
+            'supply_chain_role' => $supplier->supply_chain_role,
             'is_active' => $supplier->is_active,
         ];
     }

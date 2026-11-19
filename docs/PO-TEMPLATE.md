@@ -124,7 +124,7 @@ Header and title: Times New Roman style. Labels and values: Tahoma or Verdana st
 ### 3.10 Multi-page behavior (file 02)
 - Every page repeats: header, title, supplier box, Gentlemen line, place/term box, column headings, signature block, fund block, footer with `Page:N`.
 - Pages 1 and 2 have **no** subtotal and **no** "continue to page" row. Only the last page has the `x-x-x` row, the free-text line, the total and the amount in words.
-- Page breaks are decided by content height, not by a fixed number of lines (7, 6 and 3 lines on the three real pages).
+- Page breaks are decided by content height, not by a fixed number of lines (7, 7 and 3 lines on the three real pages; with these 17 lines the printed total 234,820.00 adds up).
 
 ## 4. Form ZCMC-F-PROC-04A Rev. 0 (Purchase Order with Delivery Schedule)
 
@@ -160,12 +160,12 @@ These rows are **not** repeated on later pages. Later pages go straight from the
 | 4 | `Total Quantity` | 8% | `170` |
 | 5 | `Unit Cost` | 9% | `208.00` |
 | 6 | `Total Amount` | 12% | `35,360.00` |
-| 7 | `7 Days from Rec. of P.O.` | 9% | Quantity delivered within 7 days of receiving the PO |
+| 7 | `7 Days from Rec. of P.O.` | 9% | Quantity delivered within 7 days of receiving the PO (confirmed 2026-11-18: "Rec." = received) |
 | 8, 9, ... | a date, for example `10/5/2026`, `12/5/2026` | 9% to 10% each | Quantity per date |
 
 - Full grid. 10 lines per page in the sample (taller rows than form 13). Headings bold, centered, small.
 - Date columns are written `m/d/yyyy` without leading zeros. The sample has two date columns; the maximum is unknown (ask).
-- Check on all 20 sample lines: quantities in columns 7 to 9 add up exactly to column 4 (for example 60 + 60 + 50 = 170; 1,200 + 550 + 0 = 1,750; 100 + 200 + 0 = 300).
+- Check on all 20 sample lines: quantities in columns 7 to 9 add up exactly to column 4 (for example 60 + 60 + 50 = 170; 600 + 1,100 + 0 = 1,700 (page 1 line 2, Allopurinol 300mg tablet, 4,080.00 = 1,700 x 2.40); 100 + 200 + 0 = 300 (the 1,750 example, 1,200 + 550 + 0, is line 83, Sodium Chloride)).
 - Check on the amounts: quantity x unit cost matches Total Amount on all 20 lines.
 
 ### 4.5 Bottom of an item page
@@ -265,7 +265,7 @@ Status words: **STORED** (we have it), **COMPUTED** (from stored data), **FIXED*
 | Total Quantity | `po_items.quantity_ordered` (also the sum of the per-date columns) | STORED |
 | Unit Cost | `po_items.unit_price` | STORED |
 | Total Amount | quantity x unit price | COMPUTED |
-| Column `7 Days from Rec. of P.O.` | none (not a date; maybe `delivery_term_days`) | NOT STORED, meaning to confirm |
+| Column `7 Days from Rec. of P.O.` | none (not a date; maybe `delivery_term_days`) | NOT STORED; meaning confirmed 2026-11-18 ("Rec." = received); still to confirm: is the 7 always the PO delivery term |
 | Date columns (headings) | `po_schedules.scheduled_date` | STORED (printed `m/d/yyyy`) |
 | **Quantity per item per column** | none | **NOT STORED** |
 | Page sum, running sub total, grand total, amounts in words | computed after pagination | COMPUTED |
@@ -356,7 +356,7 @@ So the rule could be "more than one delivery date", or "bidding POs", or a free 
 1. Which form do you use when? Is it by number of delivery dates, by mode of procurement, or your choice? What if a PO has exactly one date? Can a PO switch form after it is created?
 2. Which paper is each form printed on: A4 or long bond (8.5 x 13 in)?
 3. Who types these today, and in which order: supplier TIN, contact number, supply chain role (allowed values?), P.R. No., CAF No., mode of procurement (fixed list?), Stock/Property No., brand, manufacturer, country of origin, the free-text line (`for Pharmacy use`, `Baked Goods`)?
-4. On 04A, what is the column `7 Days from Rec. of P.O.`? Is it always first? Is the 7 always the delivery term of the PO? Is the number of date columns limited? Is quantity per date always stated (zeros allowed)? Which date format: `10/5/2026` is October 5 or 5 December?
+4. (ANSWERED in part 2026-11-18: "Rec." means received, so the column is the quantity due within the delivery term counted from receipt of the PO. Still open: is the 7 always the PO delivery term.) On 04A, what is the column `7 Days from Rec. of P.O.`? Is it always first? Is the 7 always the delivery term of the PO? Is the number of date columns limited? Is quantity per date always stated (zeros allowed)? Which date format: `10/5/2026` is October 5 or 5 December?
 5. Form 13: is `Supplier's Specifications` free text, or always brand/manufacturer/country for medicines? What is the last line (`PICK & GO CONVENIENCE STORE, PHILS.`)?
 6. Why is the PO number `26111037` on form 13 and `26-07-0592` on 04A? Is the hyphen a real difference? (The PO number rule in 3.3 allows both.)
 7. Place of Delivery: always the hospital address? Payment Term: always `Refer to Terms and Conditions` on form 13, and blank on 04A?

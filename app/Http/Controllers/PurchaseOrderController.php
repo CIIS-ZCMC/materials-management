@@ -97,6 +97,7 @@ class PurchaseOrderController extends Controller
         return Inertia::render('purchase-orders/create', [
             'supplierOptions' => $this->service->supplierChoices(),
             'dueDateRules' => $this->dueDateRules(),
+            'procurementModes' => $this->procurementModes(),
         ]);
     }
 
@@ -117,6 +118,7 @@ class PurchaseOrderController extends Controller
             'purchaseOrder' => $this->formData($po),
             'supplierOptions' => $this->service->supplierChoices($po->supplier_id),
             'dueDateRules' => $this->dueDateRules(),
+            'procurementModes' => $this->procurementModes(),
         ]);
     }
 
@@ -211,6 +213,16 @@ class PurchaseOrderController extends Controller
     }
 
     /**
+     * The choices of the "Mode of procurement" dropdown (config/mms.php, print.procurement_modes).
+     *
+     * @return list<string>
+     */
+    private function procurementModes(): array
+    {
+        return array_values((array) config('mms.print.procurement_modes', []));
+    }
+
+    /**
      * @param  array{reason: string|null, by: string|null, at: string}|null  $escalation
      * @return array<string, mixed>
      */
@@ -250,6 +262,11 @@ class PurchaseOrderController extends Controller
                 'quantity_ordered' => $item->quantity_ordered,
                 'line_total' => Money::format($lineCents),
                 'in_catalog' => $item->item_id !== null,
+                'stock_no' => $item->stock_no,
+                'brand' => $item->brand,
+                'manufacturer' => $item->manufacturer,
+                'country_of_origin' => $item->country_of_origin,
+                'specifications' => $item->specifications,
             ];
         })->values();
 
@@ -257,12 +274,22 @@ class PurchaseOrderController extends Controller
             'id' => $po->id,
             'po_number' => $po->po_number,
             'supplier' => $po->supplier->name,
+            'supplier_details' => [
+                'address' => $po->supplier->address,
+                'tin' => $po->supplier->tin,
+                'contact_no' => $po->supplier->contact_no,
+                'supply_chain_role' => $po->supplier->supply_chain_role,
+            ],
             'source' => $po->source === PurchaseOrderSource::BizBox ? 'BizBox' : 'Manual',
             'external_id' => $po->external_id,
             'po_date' => $po->po_date?->toDateString(),
             'emailed_date' => $po->emailed_date?->toDateString(),
             'delivery_term_days' => $po->delivery_term_days,
             'due_date' => $po->due_date?->toDateString(),
+            'pr_no' => $po->pr_no,
+            'caf_no' => $po->caf_no,
+            'mode_of_procurement' => $po->mode_of_procurement,
+            'remarks' => $po->remarks,
             'status' => ['value' => $po->status->value, 'label' => $po->status->label()],
             'closed_at' => $po->closed_at ? DisplayTime::format($po->closed_at) : null,
             'items' => $items,
@@ -421,6 +448,10 @@ class PurchaseOrderController extends Controller
             'po_date' => $po->po_date?->toDateString(),
             'emailed_date' => $po->emailed_date?->toDateString(),
             'delivery_term_days' => $po->delivery_term_days,
+            'pr_no' => $po->pr_no,
+            'caf_no' => $po->caf_no,
+            'mode_of_procurement' => $po->mode_of_procurement,
+            'remarks' => $po->remarks,
             'status_label' => $po->status->label(),
             'items' => $po->items->map(fn (PoItem $item) => [
                 'id' => $item->id,
@@ -432,6 +463,11 @@ class PurchaseOrderController extends Controller
                 'unit' => $item->unit->name,
                 'unit_price' => $item->unit_price,
                 'quantity_ordered' => $item->quantity_ordered,
+                'stock_no' => $item->stock_no,
+                'brand' => $item->brand,
+                'manufacturer' => $item->manufacturer,
+                'country_of_origin' => $item->country_of_origin,
+                'specifications' => $item->specifications,
             ])->values(),
             'schedule_dates' => $po->schedules->map(fn ($s) => $s->scheduled_date->toDateString())->values(),
             'extension_days' => $po->extensions->pluck('extra_days')->values(),

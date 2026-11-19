@@ -7,16 +7,23 @@ type Props = {
     purchaseOrder: EditablePo;
     supplierOptions: SupplierOption[];
     dueDateRules: DueDateRules;
+    procurementModes: string[];
 };
 
-export default function PurchaseOrderEdit({ purchaseOrder, supplierOptions, dueDateRules }: Props) {
+export default function PurchaseOrderEdit({ purchaseOrder, supplierOptions, dueDateRules, procurementModes }: Props) {
     return (
         <>
             <Head title={`Edit PO ${purchaseOrder.po_number}`} />
 
             <div className="space-y-4 p-4 md:space-y-6">
                 <Heading title={`Edit ${purchaseOrder.po_number}`} description="Change the details, items and delivery dates" />
-                <PoForm mode="edit" purchaseOrder={purchaseOrder} supplierOptions={supplierOptions} dueDateRules={dueDateRules} />
+                <PoForm
+                    mode="edit"
+                    purchaseOrder={purchaseOrder}
+                    supplierOptions={supplierOptions}
+                    dueDateRules={dueDateRules}
+                    procurementModes={procurementModes}
+                />
             </div>
         </>
     );
