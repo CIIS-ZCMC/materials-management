@@ -11,6 +11,7 @@ import PoHistoryList from '@/components/purchase-orders/po-history-list';
 import type { HistoryEntry } from '@/components/purchase-orders/po-history-list';
 import PoReviewActions from '@/components/purchase-orders/po-review-actions';
 import PoStatusBadge from '@/components/purchase-orders/po-status-badge';
+import PoSubmitButton from '@/components/purchase-orders/po-submit-button';
 import RecordExtensionDialog from '@/components/purchase-orders/record-extension-dialog';
 import type { ScheduleSplitData } from '@/components/purchase-orders/schedule-split-editor';
 import ResponsiveList from '@/components/responsive-list';
@@ -241,6 +242,8 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                                 </Link>
                             </Button>
                         )}
+                        {/* Submit to Reviewer (Procurement): on every tab once the PO has an active document. The server decides (documents.can_submit). */}
+                        <PoSubmitButton poId={po.id} canSubmit={po.documents.can_submit} consolidated={po.documents.consolidated} />
                         <PoStatusBadge status={po.status} />
                     </div>
                 </div>
@@ -362,7 +365,7 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                 )}
 
                 {tab === 'deliveries' && (
-                    <ComingSoon title="Deliveries" description="Deliveries, IARs and delivered quantities for this PO will appear here." icon={Truck} step="5.2" />
+                    <ComingSoon embedded title="Deliveries" description="Deliveries, IARs and delivered quantities for this PO will appear here." icon={Truck} step="5.2" />
                 )}
 
                 {/* Step 4.2: the document list, and the PO Bundle upload for people with po.upload-files. */}
@@ -379,4 +382,4 @@ PurchaseOrderShow.layout = {
         { title: 'Purchase Orders', href: '/purchase-orders' },
         { title: 'Purchase order', href: '#' },
     ],
-};
+};

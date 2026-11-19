@@ -16,7 +16,7 @@ use Spatie\Activitylog\Models\Activity;
 interface PurchaseOrderRepositoryInterface extends BaseRepositoryInterface
 {
     /**
-     * Paginated PO list: search, status, supplier, PO date range, Active/Closed, sort.
+     * Paginated PO list: search, status, supplier, source, PO date range, Active/Closed, sort.
      * Expects filters already cleaned by PurchaseOrderService::cleanFilters().
      *
      * @param  array<string, mixed>  $filters

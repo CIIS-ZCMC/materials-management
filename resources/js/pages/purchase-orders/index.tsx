@@ -31,6 +31,7 @@ type Filters = {
     search: string;
     status: string;
     supplier: string;
+    source: string;
     from: string;
     to: string;
     view: 'active' | 'closed';
@@ -49,14 +50,20 @@ type Props = {
 const DEFAULT_SORT = 'due_date';
 const DEFAULT_DIRECTION = 'asc';
 
-// Same keys as the columns below; used by the "Sort by" box on phones (no table header there).
+// Same keys as the columns below (same order); used by the "Sort by" box on phones (no table header there).
 const SORT_CHOICES = [
     { key: 'po_number', label: 'PO number' },
     { key: 'supplier', label: 'Supplier' },
     { key: 'status', label: 'Status' },
-    { key: 'due_date', label: 'Due date' },
     { key: 'po_date', label: 'PO date' },
+    { key: 'due_date', label: 'Due date' },
     { key: 'items', label: 'Items' },
+];
+
+// Values are the PurchaseOrderSource enum values the server accepts (manual, bizbox).
+const SOURCE_OPTIONS = [
+    { value: 'manual', label: 'In the system' },
+    { value: 'bizbox', label: 'BizBox' },
 ];
 
 const control =
@@ -84,6 +91,7 @@ export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOpt
         params: {
             status: filters.status,
             supplier: filters.supplier,
+            source: filters.source,
             from: filters.from,
             to: filters.to,
             view: filters.view === 'closed' ? 'closed' : '',
@@ -95,7 +103,7 @@ export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOpt
     // The Admin queue is the list filtered to status "escalated" (no separate menu item).
     const showingEscalated = filters.status === 'escalated';
 
-    const hasFilters = filters.status !== '' || filters.supplier !== '' || filters.from !== '' || filters.to !== '';
+    const hasFilters = filters.status !== '' || filters.supplier !== '' || filters.source !== '' || filters.from !== '' || filters.to !== '';
 
     // Back to the default sort leaves the URL clean (no sort parameters).
     const setSort = (key: string, direction: 'asc' | 'desc') => {
@@ -109,6 +117,7 @@ export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOpt
     // Click on a header: same column flips the direction, another column starts ascending.
     const clickSort = (key: string) => setSort(key, filters.sort === key && filters.direction === 'asc' ? 'desc' : 'asc');
 
+    // Column order: PO number, Supplier, Status, PO date, Due date, Items.
     const columns: ListColumn<PoRow>[] = [
         {
             key: 'po_number',
@@ -125,6 +134,7 @@ export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOpt
         },
         { key: 'supplier', header: 'Supplier', sortable: true, card: 'summary', cell: (p) => p.supplier },
         { key: 'status', header: 'Status', sortable: true, card: 'badge', cell: (p) => <PoStatusBadge status={p.status} /> },
+        { key: 'po_date', header: 'PO date', sortable: true, className: 'tabular-nums', cell: (p) => p.po_date ?? '—' },
         {
             key: 'due_date',
             header: 'Due date',
@@ -145,7 +155,6 @@ export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOpt
                 </span>
             ),
         },
-        { key: 'po_date', header: 'PO date', sortable: true, className: 'tabular-nums', cell: (p) => p.po_date ?? '—' },
         { key: 'items', header: 'Items', sortable: true, className: 'tabular-nums', cell: (p) => p.items_count },
     ];
 
@@ -241,7 +250,7 @@ export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOpt
                 />
 
                 {/* Filters */}
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                     <Field label="Status">
                         <select className={control} value={filters.status} onChange={(e) => search.apply({ status: e.target.value })}>
                             <option value="">All statuses</option>
@@ -259,6 +268,16 @@ export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOpt
                                 <option key={s.id} value={String(s.id)}>
                                     {s.name}
                                     {s.is_active ? '' : ' (inactive)'}
+                                </option>
+                            ))}
+                        </select>
+                    </Field>
+                    <Field label="Source">
+                        <select className={control} value={filters.source} onChange={(e) => search.apply({ source: e.target.value })}>
+                            <option value="">All sources</option>
+                            {SOURCE_OPTIONS.map((s) => (
+                                <option key={s.value} value={s.value}>
+                                    {s.label}
                                 </option>
                             ))}
                         </select>
@@ -295,7 +314,12 @@ export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOpt
                     </div>
 
                     {hasFilters && (
-                        <Button type="button" variant="ghost" size="sm" onClick={() => search.apply({ status: '', supplier: '', from: '', to: '' })}>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => search.apply({ status: '', supplier: '', source: '', from: '', to: '' })}
+                        >
                             Clear filters
                         </Button>
                     )}

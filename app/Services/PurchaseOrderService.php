@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Contracts\PurchaseOrderRepositoryInterface;
+use App\Enums\PurchaseOrderSource;
 use App\Enums\PurchaseOrderStatus;
 use App\Models\PoItem;
 use App\Models\PoSchedule;
@@ -56,7 +57,7 @@ class PurchaseOrderService
      * page so the inputs always show what was really applied.
      *
      * @param  array<string, mixed>  $input
-     * @return array{search: string, status: string, supplier: string, from: string, to: string, view: string, sort: string, direction: string}
+     * @return array{search: string, status: string, supplier: string, source: string, from: string, to: string, view: string, sort: string, direction: string}
      */
     public function cleanFilters(array $input): array
     {
@@ -71,6 +72,7 @@ class PurchaseOrderService
             'search' => $text('search'),
             'status' => PurchaseOrderStatus::tryFrom($text('status'))?->value ?? '',
             'supplier' => ctype_digit($text('supplier')) ? $text('supplier') : '',
+            'source' => PurchaseOrderSource::tryFrom($text('source'))?->value ?? '',
             'from' => $this->validDate($text('from')),
             'to' => $this->validDate($text('to')),
             'view' => $text('view') === 'closed' ? 'closed' : 'active',
@@ -548,4 +550,4 @@ class PurchaseOrderService
 
         return $date !== false && $date->format('Y-m-d') === $value ? $value : '';
     }
-}
+}

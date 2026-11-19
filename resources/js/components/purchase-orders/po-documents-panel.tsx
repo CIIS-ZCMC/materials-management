@@ -1,5 +1,5 @@
 import { router, useForm } from '@inertiajs/react';
-import { ArrowDown, ArrowUp, Ban, Download, ExternalLink, Eye, FolderOpen, RefreshCw, Send, Trash2, Upload, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Ban, Download, ExternalLink, Eye, FolderOpen, RefreshCw, Trash2, Upload, X } from 'lucide-react';
 import { useRef, useState, type FormEvent } from 'react';
 import { orDash } from '@/components/purchase-orders/po-format';
 import ResponsiveList from '@/components/responsive-list';
@@ -52,7 +52,7 @@ export type PoDocumentsData = {
 
 type Props = { poId: number; isDraft: boolean; documents: PoDocumentsData };
 
-type Confirm = { kind: 'remove'; id: number } | { kind: 'submit' } | null;
+type Confirm = { kind: 'remove'; id: number } | null;
 
 // "void" and "replace" both ask for a reason; "replace" also asks for the new file.
 type Correction = { kind: 'void' | 'replace'; id: number; name: string } | null;
@@ -81,9 +81,10 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
     // - "inputKey" changes after a successful upload so the file box empties itself;
     // - "viewerPage" is the page the combined PDF opens at (null = the first page);
     // - "previewId" is one ORIGINAL file shown in a second frame (null = none; only for people who may open originals);
-    // - "confirm" is the button waiting for a second click ("Yes, remove" / "Yes, submit");
+    // - "confirm" is the Remove button waiting for a second click ("Yes, remove");
     // - "correction" is the void / replace form that is open, with its reason and (for replace) the new file;
     // - "busy" blocks the buttons while a request runs; "actionError" is the server's message for a button.
+    // (Submit to Reviewer is not here any more: it is the header button of the PO page, PoSubmitButton.)
     const form = useForm<{ file: File | null }>({ file: null });
     const [inputKey, setInputKey] = useState(0);
     // The real <input type="file"> is hidden; the visible "Choose file" button clicks it through this ref.
@@ -312,7 +313,6 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
     };
 
     const hasActions = canJump || documents.can_view || documents.can_reorder || documents.can_remove || documents.can_void || documents.can_replace;
-    const submitting = confirm?.kind === 'submit';
     const viewerUrl = `${base}/consolidated`;
 
     return (
@@ -514,29 +514,12 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
                 </div>
             )}
 
+            {/* Hint only. The Submit to Reviewer button is in the page header (PoSubmitButton), on every tab. */}
             {documents.can_submit && (
-                <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-4">
-                    <p className="text-sm font-medium">Ready to send this PO to the PO Reviewer?</p>
-                    <p className="text-sm text-muted-foreground">
-                        Check the combined PDF above. After you submit, the PO becomes Uploaded and a file can no longer be removed (a wrong document is
-                        voided with a reason).
-                    </p>
-                    {submitting ? (
-                        <div className="flex flex-wrap items-center gap-2 text-sm">
-                            Submit this PO now?
-                            <Button type="button" size="sm" disabled={busy} onClick={() => router.post(`${base}/submit`, {}, visit)}>
-                                <Send className="size-4" /> {busy ? 'Submitting...' : 'Yes, submit'}
-                            </Button>
-                            <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setConfirm(null)}>
-                                Cancel
-                            </Button>
-                        </div>
-                    ) : (
-                        <Button type="button" size="sm" disabled={busy} onClick={() => setConfirm({ kind: 'submit' })}>
-                            <Send className="size-4" /> Submit to Reviewer
-                        </Button>
-                    )}
-                </div>
+                <p className="text-sm text-muted-foreground">
+                    Ready to send this PO to the PO Reviewer? Check the combined PDF above, then use Submit to Reviewer at the top of the page. After you submit,
+                    the PO becomes Uploaded and a file can no longer be removed (a wrong document is voided with a reason).
+                </p>
             )}
         </div>
     );

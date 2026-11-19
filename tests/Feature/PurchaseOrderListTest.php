@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\PurchaseOrderSource;
 use App\Models\PoItem;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
@@ -142,6 +143,125 @@ class PurchaseOrderListTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->where('filters.sort', 'due_date')
                 ->where('filters.direction', 'asc'));
+    }
+
+    public function test_source_filter_keeps_only_that_source(): void
+    {
+        PurchaseOrder::factory()->create(['po_number' => 'MAN-1', 'source' => PurchaseOrderSource::Manual->value]);
+        PurchaseOrder::factory()->create(['po_number' => 'BIZ-1', 'source' => PurchaseOrderSource::BizBox->value]);
+
+        $this->actingAs($this->user());
+
+        $this->get('/purchase-orders?source=manual')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('purchaseOrders.data', 1)
+                ->where('purchaseOrders.data.0.po_number', 'MAN-1')
+                ->where('filters.source', 'manual'));
+
+        $this->get('/purchase-orders?source=bizbox')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('purchaseOrders.data', 1)
+                ->where('purchaseOrders.data.0.po_number', 'BIZ-1')
+                ->where('filters.source', 'bizbox'));
+
+        $this->get('/purchase-orders')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('purchaseOrders.data', 2)
+                ->where('filters.source', ''));
+    }
+
+    public function test_an_invalid_source_is_ignored_and_never_an_error(): void
+    {
+        PurchaseOrder::factory()->create(['po_number' => 'MAN-1', 'source' => PurchaseOrderSource::Manual->value]);
+        PurchaseOrder::factory()->create(['po_number' => 'BIZ-1', 'source' => PurchaseOrderSource::BizBox->value]);
+
+        $this->actingAs($this->user());
+
+        $this->get('/purchase-orders?source=nonsense')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('purchaseOrders.data', 2)
+                ->where('filters.source', ''));
+
+        $this->get('/purchase-orders?source[]=bizbox')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('purchaseOrders.data', 2)
+                ->where('filters.source', ''));
+    }
+
+    public function test_source_filter_combines_with_the_closed_view_and_with_search(): void
+    {
+        PurchaseOrder::factory()->create(['po_number' => 'M-OPEN', 'source' => PurchaseOrderSource::Manual->value]);
+        PurchaseOrder::factory()->create(['po_number' => 'B-OPEN', 'source' => PurchaseOrderSource::BizBox->value]);
+        PurchaseOrder::factory()->closed()->create(['po_number' => 'M-CLOSED', 'source' => PurchaseOrderSource::Manual->value]);
+        PurchaseOrder::factory()->closed()->create(['po_number' => 'B-CLOSED', 'source' => PurchaseOrderSource::BizBox->value]);
+
+        $this->actingAs($this->user());
+
+        // Active view + source
+        $this->get('/purchase-orders?source=bizbox')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('purchaseOrders.data', 1)
+                ->where('purchaseOrders.data.0.po_number', 'B-OPEN'));
+
+        // Closed view + source
+        $this->get('/purchase-orders?view=closed&source=bizbox')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('purchaseOrders.data', 1)
+                ->where('purchaseOrders.data.0.po_number', 'B-CLOSED')
+                ->where('filters.view', 'closed')
+                ->where('filters.source', 'bizbox'));
+
+        $this->get('/purchase-orders?view=closed&source=manual')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('purchaseOrders.data', 1)
+                ->where('purchaseOrders.data.0.po_number', 'M-CLOSED'));
+
+        // Search + source: M-OPEN also matches "OPEN" but is the wrong source
+        $this->get('/purchase-orders?source=bizbox&search=OPEN')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('purchaseOrders.data', 1)
+                ->where('purchaseOrders.data.0.po_number', 'B-OPEN')
+                ->where('filters.search', 'OPEN'));
+
+        // Search + source with no match
+        $this->get('/purchase-orders?source=bizbox&search=M-OPEN')
+            ->assertInertia(fn (Assert $page) => $page->has('purchaseOrders.data', 0));
+    }
+
+    public function test_source_filter_combines_with_status(): void
+    {
+        PurchaseOrder::factory()->withStatus(PurchaseOrderStatus::Verified)->create(['po_number' => 'MV-1', 'source' => PurchaseOrderSource::Manual->value]);
+        PurchaseOrder::factory()->withStatus(PurchaseOrderStatus::Verified)->create(['po_number' => 'BV-1', 'source' => PurchaseOrderSource::BizBox->value]);
+        PurchaseOrder::factory()->withStatus(PurchaseOrderStatus::Draft)->create(['po_number' => 'BD-1', 'source' => PurchaseOrderSource::BizBox->value]);
+
+        $this->actingAs($this->user())
+            ->get('/purchase-orders?status=verified&source=bizbox')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('purchaseOrders.data', 1)
+                ->where('purchaseOrders.data.0.po_number', 'BV-1'));
+    }
+
+    public function test_the_source_filter_is_kept_when_paging(): void
+    {
+        PurchaseOrder::factory()->count(16)->create(['source' => PurchaseOrderSource::BizBox->value]);
+        PurchaseOrder::factory()->create(['po_number' => 'MAN-ONLY', 'source' => PurchaseOrderSource::Manual->value]);
+
+        $this->actingAs($this->user());
+
+        $first = $this->get('/purchase-orders?source=bizbox');
+
+        $first->assertInertia(fn (Assert $page) => $page->has('purchaseOrders.data', 15));
+
+        // The paginator links carry the filter (withQueryString), so Next keeps it.
+        $this->assertStringContainsString('source=bizbox', json_encode($first->viewData('page')['props']['purchaseOrders']));
+
+        $this->get('/purchase-orders?source=bizbox&page=2')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('purchaseOrders.data', 1)
+                ->where('filters.source', 'bizbox'));
     }
 
     public function test_the_detail_page_shows_items_with_a_computed_total(): void

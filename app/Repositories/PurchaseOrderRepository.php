@@ -70,6 +70,11 @@ class PurchaseOrderRepository extends BaseRepository implements PurchaseOrderRep
             $query->where('purchase_orders.supplier_id', (int) $filters['supplier']);
         }
 
+        // Where the PO came from (manual or bizbox). Filtering does not add a selected column.
+        if (($filters['source'] ?? '') !== '') {
+            $query->where('purchase_orders.source', $filters['source']);
+        }
+
         if (($filters['from'] ?? '') !== '') {
             $query->where('purchase_orders.po_date', '>=', $filters['from']);
         }
@@ -318,4 +323,4 @@ class PurchaseOrderRepository extends BaseRepository implements PurchaseOrderRep
         // Stable order for rows with the same value.
         $query->orderBy('purchase_orders.id');
     }
-}
+}
