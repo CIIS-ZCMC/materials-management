@@ -24,6 +24,10 @@ use Illuminate\Auth\Access\Response;
  * documents.void  voids or replaces a wrong document with a reason (step 4.3), only while PoDocumentRule
  *                  allows it (uploaded, escalated). The PO Bundle also needs po.upload-files (Procurement);
  *                  when Phase 5 adds DR/OR/IAR the Encoder's own rule is decided there.
+ * documents.reorder  moves documents up or down on a submitted (uploaded) PO: MMS staff such as the PO Reviewer
+ *                  (step 4.2d). Who may reorder at which status is decided in PoDocumentRule (REORDER).
+ *                  It also lets them open the single original files while the PO is uploaded (step 4.2e,
+ *                  PoDocumentRule::staffMayViewOriginals).
  * documents.view-originals  opens any single (original) document file at any status (Admin and MMS Head)
  * po.view          opens the consolidated PDF (a draft's only for people who handle the files)
  * Auto-discovered: App\Models\PurchaseOrder -> App\Policies\PurchaseOrderPolicy.
@@ -147,14 +151,17 @@ class PurchaseOrderPolicy
         return $reason === null ? Response::allow() : Response::deny($reason);
     }
 
-    /** Move a file up or down: draft and escalated. */
+    /**
+     * Move a file up or down. Two kinds of people, each with its own PO statuses (PoDocumentRule::REORDER):
+     * po.upload-files (Procurement: draft and escalated) and documents.reorder (MMS staff: uploaded, step 4.2d).
+     */
     public function reorderDocuments(User $actor, PurchaseOrder $purchaseOrder): Response
     {
-        if (! $actor->can('po.upload-files')) {
+        if (PoDocumentRule::reorderCapacities($actor) === []) {
             return Response::deny();
         }
 
-        $reason = PoDocumentRule::reorderBlockReason($purchaseOrder);
+        $reason = PoDocumentRule::reorderBlockReason($purchaseOrder, $actor);
 
         return $reason === null ? Response::allow() : Response::deny($reason);
     }
@@ -197,16 +204,20 @@ class PurchaseOrderPolicy
         return $actor->can('po.view') ? Response::allow() : Response::deny();
     }
 
-    /** "Rebuild combined PDF" (retry after a failed rebuild). Harmless and repeatable, so any status. */
+    /**
+     * "Rebuild combined PDF" (retry after a failed rebuild). Harmless and repeatable, so any status.
+     * documents.reorder is included (step 4.2d): whoever reorders must be able to retry the rebuild that follows.
+     */
     public function rebuildConsolidated(User $actor, PurchaseOrder $purchaseOrder): bool
     {
-        return $actor->canAny(['po.upload-files', 'documents.void', 'documents.view-originals']);
+        return $actor->canAny(['po.upload-files', 'documents.void', 'documents.reorder', 'documents.view-originals']);
     }
 
     /**
      * Open one ORIGINAL document file (the "Original" button). Uploaders may open files while the PO is draft,
      * uploaded or escalated. Admin and MMS Head (documents.view-originals) may open them at any status.
-     * Everyone else works with the consolidated PDF only.
+     * MMS staff who may reorder (documents.reorder) may open them while PoDocumentRule::staffMayViewOriginals
+     * allows it (uploaded, step 4.2e). Everyone else works with the consolidated PDF only.
      */
     public function viewDocument(User $actor, PurchaseOrder $purchaseOrder): Response
     {
@@ -215,6 +226,10 @@ class PurchaseOrderPolicy
         }
 
         if ($actor->can('po.upload-files') && PoDocumentRule::isOpen($purchaseOrder)) {
+            return Response::allow();
+        }
+
+        if ($actor->can('documents.reorder') && PoDocumentRule::staffMayViewOriginals($purchaseOrder)) {
             return Response::allow();
         }
 

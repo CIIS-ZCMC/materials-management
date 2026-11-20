@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Support\Audit;
 use App\Support\DisplayTime;
 use App\Support\ImagePdf;
+use App\Support\PoDocumentChecklist;
 use App\Support\PoDocumentRule;
 use App\Support\Qpdf;
 use App\Support\StatusTransition;
@@ -26,19 +27,21 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
 /**
- * The documents of a PO (steps 4.2 and 4.2b). This service does not check permissions
+ * The documents of a PO (steps 4.2, 4.2b and 4.2c). This service does not check permissions
  * (the Form Request and the Policy do); it checks the PO status rules (PoDocumentRule)
  * again inside each transaction, with the PO row locked.
  *
- * upload():
- *   1. Check the file itself (real content, qpdf for PDFs, image rules). A bad
- *      file is rejected here and never touches the database or the disk.
- *   2. In ONE database transaction, with the PO row locked: check PoDocumentRule,
- *      write the files to the PRIVATE disk under a random name, create the
- *      po_documents row (next page number) and write the audit entry (log "po").
+ * uploadMany() (step 4.2c; it replaced the one-file upload()): a request holds groups, each a
+ * document type with one or more files.
+ *   1. Check EVERY file itself first (real content, qpdf for PDFs, image rules). Bad files are
+ *      reported together (error key groups.i.files.j) and nothing touches the database or the disk.
+ *   2. In ONE database transaction, with the PO row locked: check PoDocumentRule, write all the files
+ *      to the PRIVATE disk under random names, create the po_documents rows (page numbers continue
+ *      after the last one: groups top to bottom, files in the order chosen) and write one audit entry
+ *      per file (log "po", the type in the text, one shared "batch" id).
  *      Since 4.2b an upload NEVER changes the PO status; submit() does.
- *   3. If anything in step 2 fails, the transaction is rolled back and the files
- *      already written are deleted.
+ *   3. If anything in step 2 fails, the transaction is rolled back and every file already written is
+ *      deleted: all or nothing.
  *
  * submit():  draft -> uploaded through StatusTransition::apply() (needs one active document).
  * remove():  a real delete, draft only (row and files); the page numbers close the gap.
@@ -48,7 +51,8 @@ use Throwable;
  * Step 4.3: this service never builds the consolidated PDF. The controller calls
  * PoConsolidatedPdfService::rebuild() AFTER each change is committed, so a failed merge
  * can never undo an upload, void or reorder.
- * move():    swaps a document with the next or previous ACTIVE one (draft and escalated).
+ * move():    swaps a document with the next or previous ACTIVE one. Who may, and at which PO status, is
+ *            PoDocumentRule::REORDER (Procurement: draft and escalated; MMS staff: uploaded, step 4.2d).
  * fileResponse(): streams one stored PDF inline through an authorized route.
  *
  * A JPG or PNG becomes a one-page PDF at upload. stored_path is always the PDF
@@ -77,39 +81,97 @@ final class PoDocumentService
     }
 
     /**
-     * @throws ValidationException error key "file", shown under the file box
+     * Saves the files of every group, all or nothing. The Form Request has checked the shape, the types
+     * and the totals; the type and the "once per request" rule are checked here again, because this is
+     * the one place that writes.
+     *
+     * @param  list<array{type: string, files: list<UploadedFile>}>  $groups
+     * @return list<PoDocument> the new documents in page order
+     *
+     * @throws ValidationException groups.i.type, groups.i.files.j (one message per bad file) or "form" (the status rule)
      */
-    public function upload(PurchaseOrder $po, UploadedFile $file, PoDocumentType $type, User $actor): PoDocument
+    public function uploadMany(PurchaseOrder $po, array $groups, User $actor): array
     {
-        $kind = $this->inspect($file);
-        $pdfBytes = $kind === 'pdf' ? null : $this->imageToPdf($file, $kind);
+        $errors = [];
+        $prepared = [];
+        $seen = [];
+
+        foreach (array_values($groups) as $i => $group) {
+            $type = PoDocumentType::tryFrom((string) ($group['type'] ?? ''));
+
+            if ($type === null || ! PoDocumentChecklist::isSelectable($type->value)) {
+                $errors["groups.{$i}.type"] = 'This document type cannot be added here. Choose a type from the list.';
+
+                continue;
+            }
+
+            if (isset($seen[$type->value])) {
+                $errors["groups.{$i}.type"] = 'Each document type can be chosen once in the same upload. Put all the files of that type in one row.';
+
+                continue;
+            }
+
+            $seen[$type->value] = true;
+
+            foreach (array_values((array) ($group['files'] ?? [])) as $j => $file) {
+                try {
+                    $kind = $this->inspect($file);
+                    $prepared[] = [
+                        'type' => $type,
+                        'file' => $file,
+                        'kind' => $kind,
+                        'pdf' => $kind === 'pdf' ? null : $this->imageToPdf($file, $kind),
+                    ];
+                } catch (ValidationException $e) {
+                    // inspect() and imageToPdf() report under "file"; here the message belongs to this one file.
+                    $errors["groups.{$i}.files.{$j}"] = (string) ($e->errors()['file'][0] ?? 'The file could not be used.');
+                }
+            }
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
+
+        if ($prepared === []) {
+            throw ValidationException::withMessages(['groups' => 'Choose a document type and at least one file.']);
+        }
 
         $disk = Storage::disk(self::DISK);
         $directory = 'po-documents/'.$po->getKey();
-        $name = (string) Str::uuid();
+        $batch = (string) Str::uuid();
         $written = [];
 
         try {
-            return DB::transaction(function () use ($po, $file, $type, $actor, $kind, $pdfBytes, $disk, $directory, $name, &$written): PoDocument {
+            return DB::transaction(function () use ($po, $prepared, $actor, $disk, $directory, $batch, &$written): array {
                 $locked = $this->lock($po);
 
-                $this->assertAllowed(PoDocumentRule::addBlockReason($locked), 'file');
+                $this->assertAllowed(PoDocumentRule::addBlockReason($locked), 'form');
 
                 $order = (int) PoDocument::query()->where('purchase_order_id', $locked->getKey())->max('sort_order') + 1;
-                $document = $this->persist($locked, $file, $type, $actor, $kind, $pdfBytes, $disk, $directory, $name, $order, null, $written);
-                $originalName = $document->original_name;
+                $created = [];
 
-                Audit::log(
-                    event: 'document_uploaded',
-                    subject: $locked,
-                    description: "Uploaded {$type->label()} ({$originalName}) to PO {$locked->po_number}",
-                    new: ['documents' => "{$type->label()}: {$originalName}"],
-                    extra: ['document_id' => $document->getKey(), 'sort_order' => $order],
-                    causer: $actor,
-                    log: 'po',
-                );
+                foreach ($prepared as $item) {
+                    /** @var PoDocumentType $type */
+                    $type = $item['type'];
+                    $document = $this->persist($locked, $item['file'], $type, $actor, $item['kind'], $item['pdf'], $disk, $directory, (string) Str::uuid(), $order, null, $written);
+                    $originalName = $document->original_name;
 
-                return $document;
+                    Audit::log(
+                        event: 'document_uploaded',
+                        subject: $locked,
+                        description: "Uploaded {$type->label()} ({$originalName}) to PO {$locked->po_number}",
+                        new: ['documents' => "{$type->label()}: {$originalName}"],
+                        extra: ['document_id' => $document->getKey(), 'sort_order' => $order, 'batch' => $batch, 'files_in_request' => count($prepared)],
+                        causer: $actor,
+                        log: 'po',
+                    );
+
+                    $created[] = $document;
+                    $order++;
+                }
+
+                return $created;
             });
         } catch (Throwable $e) {
             if ($written !== []) {
@@ -211,6 +273,8 @@ final class PoDocumentService
      * Moves a document one place up or down among the ACTIVE documents (a voided one keeps its
      * number and is skipped). The two numbers are swapped through a temporary number because
      * (purchase_order_id, sort_order) is unique.
+     * The status rule is checked again here, under the PO row lock, for what THIS actor may do
+     * (a PO that was verified a second ago refuses the move). The audit text names the PO status.
      *
      * @param  'up'|'down'  $direction
      *
@@ -221,7 +285,7 @@ final class PoDocumentService
         DB::transaction(function () use ($po, $document, $direction, $actor): void {
             $locked = $this->lock($po);
 
-            $this->assertAllowed(PoDocumentRule::reorderBlockReason($locked), 'form');
+            $this->assertAllowed(PoDocumentRule::reorderBlockReason($locked, $actor), 'form');
 
             $active = PoDocument::query()
                 ->where('purchase_order_id', $locked->getKey())
@@ -262,8 +326,8 @@ final class PoDocumentService
             Audit::log(
                 event: 'documents_reordered',
                 subject: $locked,
-                description: "Moved {$moving->original_name} {$direction} in PO {$locked->po_number} (place ".($index + 1).' to '.($neighbourIndex + 1).')',
-                extra: ['document_id' => $moving->getKey(), 'direction' => $direction],
+                description: "Moved {$moving->original_name} {$direction} in PO {$locked->po_number} (place ".($index + 1).' to '.($neighbourIndex + 1).') while the PO was '.strtolower($locked->status->label()),
+                extra: ['document_id' => $moving->getKey(), 'direction' => $direction, 'po_status' => $locked->status->value],
                 causer: $actor,
                 log: 'po',
             );
@@ -419,6 +483,8 @@ final class PoDocumentService
      * If one active document has no page_count yet (a PO from before step 4.3 until its first rebuild),
      * it and the ones after it show no page numbers.
      *
+     * Step 4.2c: every row also carries type_key (the stored string), used by the type filter.
+     *
      * @param  bool  $includeVoid  false hides voided documents (people who only read the consolidated PDF)
      * @return list<array<string, mixed>>
      */
@@ -450,6 +516,7 @@ final class PoDocumentService
                     'id' => $document->id,
                     'sort_order' => $document->sort_order,
                     'type' => $document->type->label(),
+                    'type_key' => $document->type->value,
                     'original_name' => $document->original_name,
                     'size_bytes' => $document->size_bytes,
                     'status' => $document->status->value,

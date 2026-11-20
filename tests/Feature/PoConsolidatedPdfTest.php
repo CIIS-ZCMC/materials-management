@@ -95,6 +95,12 @@ function po_cons_pdf(string $name): UploadedFile
     return UploadedFile::fake()->createWithContent($name, "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n");
 }
 
+/** The request body of the upload form (step 4.2c): one group of type po_bundle with these files. */
+function po_cons_groups(UploadedFile ...$files): array
+{
+    return ['groups' => [['type' => 'po_bundle', 'files' => array_values($files)]]];
+}
+
 function po_cons_url(PurchaseOrder $po): string
 {
     return "/purchase-orders/{$po->id}/documents";
@@ -135,7 +141,7 @@ it('builds the consolidated PDF after an upload and appends the next upload as t
     $po = PurchaseOrder::factory()->create(['status' => 'draft']);
     $user = po_cons_user('Procurement');
 
-    $this->actingAs($user)->post(po_cons_url($po), ['file' => po_cons_pdf('first.pdf')])->assertSessionHasNoErrors();
+    $this->actingAs($user)->post(po_cons_url($po), po_cons_groups(po_cons_pdf('first.pdf')))->assertSessionHasNoErrors();
 
     $po->refresh();
     $firstPath = $po->consolidated_path;
@@ -146,7 +152,7 @@ it('builds the consolidated PDF after an upload and appends the next upload as t
         ->and($po->consolidated_built_at)->not->toBeNull();
     Storage::disk('local')->assertExists($firstPath);
 
-    $this->actingAs($user)->post(po_cons_url($po), ['file' => po_cons_pdf('second.pdf')])->assertSessionHasNoErrors();
+    $this->actingAs($user)->post(po_cons_url($po), po_cons_groups(po_cons_pdf('second.pdf')))->assertSessionHasNoErrors();
 
     $po->refresh();
 
@@ -178,8 +184,8 @@ it('gives qpdf the files in page order and changes nothing about the pages', fun
     $po = PurchaseOrder::factory()->create(['status' => 'draft']);
     $user = po_cons_user('Procurement');
 
-    $this->actingAs($user)->post(po_cons_url($po), ['file' => po_cons_pdf('first.pdf')]);
-    $this->actingAs($user)->post(po_cons_url($po), ['file' => po_cons_pdf('second.pdf')]);
+    $this->actingAs($user)->post(po_cons_url($po), po_cons_groups(po_cons_pdf('first.pdf')));
+    $this->actingAs($user)->post(po_cons_url($po), po_cons_groups(po_cons_pdf('second.pdf')));
 
     [$first, $second] = PoDocument::orderBy('sort_order')->get()->all();
 
@@ -224,8 +230,8 @@ it('rebuilds after a file is removed from a draft, and clears the combined PDF w
     $po = PurchaseOrder::factory()->create(['status' => 'draft']);
     $user = po_cons_user('Procurement');
 
-    $this->actingAs($user)->post(po_cons_url($po), ['file' => po_cons_pdf('a.pdf')]);
-    $this->actingAs($user)->post(po_cons_url($po), ['file' => po_cons_pdf('b.pdf')]);
+    $this->actingAs($user)->post(po_cons_url($po), po_cons_groups(po_cons_pdf('a.pdf')));
+    $this->actingAs($user)->post(po_cons_url($po), po_cons_groups(po_cons_pdf('b.pdf')));
 
     $a = PoDocument::orderBy('sort_order')->first();
     $this->actingAs($user)->delete(po_cons_url($po)."/{$a->id}")->assertSessionHasNoErrors();
@@ -251,13 +257,13 @@ it('keeps the previous consolidated PDF when the merge fails (qpdf exit 2), says
     $user = po_cons_user('Procurement');
 
     po_cons_fake();
-    $this->actingAs($user)->post(po_cons_url($po), ['file' => po_cons_pdf('first.pdf')]);
+    $this->actingAs($user)->post(po_cons_url($po), po_cons_groups(po_cons_pdf('first.pdf')));
     $previous = $po->fresh()->consolidated_path;
 
     // The second upload is saved, but the merge fails.
     po_cons_fake(mergeExit: 2);
     $this->actingAs($user)
-        ->post(po_cons_url($po), ['file' => po_cons_pdf('second.pdf')])
+        ->post(po_cons_url($po), po_cons_groups(po_cons_pdf('second.pdf')))
         ->assertSessionHasNoErrors()
         ->assertSessionHas('success', fn (string $message) => str_contains($message, 'could not be rebuilt') && str_contains($message, 'previous version'));
 
@@ -287,8 +293,8 @@ it('keeps the previous consolidated PDF when the merge fails (qpdf exit 2), says
     expect($po->consolidated_stale)->toBeFalse()
         ->and($po->consolidated_error)->toBeNull()
         ->and($po->consolidated_pages)->toBe(4)
-        ->and(po_cons_files($po))->toBe([$po->consolidated_path]);
-    Storage::disk('local')->assertMissing($previous);
+        ->and(po_cons_files($po))->toBe([$po->consolidated_path])
+        ->and(Storage::disk('local')->exists($previous))->toBeFalse();
 });
 
 it('treats qpdf exit 3 (warnings) as success and logs the warning', function () {
@@ -296,7 +302,7 @@ it('treats qpdf exit 3 (warnings) as success and logs the warning', function () 
     po_cons_fake(mergeExit: 3);
     $po = PurchaseOrder::factory()->create(['status' => 'draft']);
 
-    $this->actingAs(po_cons_user('Procurement'))->post(po_cons_url($po), ['file' => po_cons_pdf('scan.pdf')])->assertSessionHasNoErrors();
+    $this->actingAs(po_cons_user('Procurement'))->post(po_cons_url($po), po_cons_groups(po_cons_pdf('scan.pdf')))->assertSessionHasNoErrors();
 
     $po->refresh();
 
@@ -347,7 +353,7 @@ it('voids a document with a reason: its pages leave the combined PDF and the ori
         ->and($po->consolidated_path)->not->toBe($before);
 
     // Never deleted: the row and the file are still there, and the numbers are unchanged.
-    Storage::disk('local')->assertExists($b->stored_path);
+    expect(Storage::disk('local')->exists($b->stored_path))->toBeTrue();
     expect(PoDocument::orderBy('sort_order')->pluck('sort_order')->all())->toBe([1, 2, 3]);
 
     $activity = Activity::where('event', 'document_voided')->where('log_name', 'po')->sole();
@@ -555,7 +561,9 @@ it('keeps a draft PO\'s combined PDF from people who do not handle the files, an
     $this->actingAs(po_cons_user('Admin'))->get(po_cons_url($po).'/consolidated')->assertOk();
 
     // Not logged in, or no menu access at all.
-    auth()->logout();
+    /** @var \Illuminate\Contracts\Auth\StatefulGuard $guard */
+    $guard = auth()->guard();
+    $guard->logout();
     $this->get(po_cons_url($po).'/consolidated')->assertRedirect();
     $this->actingAs(User::factory()->create())->get(po_cons_url($po).'/consolidated')->assertForbidden();
 });
@@ -720,12 +728,12 @@ it('combines the two real office scans (4 + 14 pages) in upload order and keeps 
     $po = PurchaseOrder::factory()->create(['status' => 'draft']);
     $user = po_cons_user('Procurement');
 
-    $this->actingAs($user)->post(po_cons_url($po), ['file' => po_cons_scan('iar-26-2192-medline-4-pages.pdf', 'IAR 26-2192 Med-Line.pdf')])->assertSessionHasNoErrors();
+    $this->actingAs($user)->post(po_cons_url($po), po_cons_groups(po_cons_scan('iar-26-2192-medline-4-pages.pdf', 'IAR 26-2192 Med-Line.pdf')))->assertSessionHasNoErrors();
 
     expect($po->fresh()->consolidated_pages)->toBe(4);
 
     // The second upload is appended as the next pages.
-    $this->actingAs($user)->post(po_cons_url($po), ['file' => po_cons_scan('iar-26-2190-savelink-14-pages.pdf', 'IAR 26-2190 Savelink.pdf')])->assertSessionHasNoErrors();
+    $this->actingAs($user)->post(po_cons_url($po), po_cons_groups(po_cons_scan('iar-26-2190-savelink-14-pages.pdf', 'IAR 26-2190 Savelink.pdf')))->assertSessionHasNoErrors();
 
     $po->refresh();
     $combined = Storage::disk('local')->path($po->consolidated_path);
@@ -762,8 +770,8 @@ it('removes exactly the pages of a voided real scan (18 -> 14), and replaces one
     $po = PurchaseOrder::factory()->create(['status' => 'uploaded']);
     $user = po_cons_user('Procurement');
 
-    $this->actingAs($user)->post(po_cons_url($po), ['file' => po_cons_scan('iar-26-2192-medline-4-pages.pdf', 'IAR 26-2192 Med-Line.pdf')])->assertSessionHasNoErrors();
-    $this->actingAs($user)->post(po_cons_url($po), ['file' => po_cons_scan('iar-26-2190-savelink-14-pages.pdf', 'IAR 26-2190 Savelink.pdf')])->assertSessionHasNoErrors();
+    $this->actingAs($user)->post(po_cons_url($po), po_cons_groups(po_cons_scan('iar-26-2192-medline-4-pages.pdf', 'IAR 26-2192 Med-Line.pdf')))->assertSessionHasNoErrors();
+    $this->actingAs($user)->post(po_cons_url($po), po_cons_groups(po_cons_scan('iar-26-2190-savelink-14-pages.pdf', 'IAR 26-2190 Savelink.pdf')))->assertSessionHasNoErrors();
 
     expect($po->fresh()->consolidated_pages)->toBe(18);
 

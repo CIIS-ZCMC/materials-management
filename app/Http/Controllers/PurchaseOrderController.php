@@ -20,6 +20,7 @@ use App\Services\PoReviewService;
 use App\Services\PurchaseOrderService;
 use App\Support\DisplayTime;
 use App\Support\Money;
+use App\Support\PoDocumentChecklist;
 use App\Support\PoDocumentRule;
 use App\Support\ScheduleSplit;
 use Illuminate\Http\JsonResponse;
@@ -324,7 +325,7 @@ class PurchaseOrderController extends Controller
      * the PO is open); everyone with po.view sees the combined PDF (can_view_consolidated).
      * Voided rows are sent only to people who handle or audit the files.
      *
-     * @return array{can_upload: bool, can_submit: bool, can_remove: bool, can_reorder: bool, can_view: bool, can_view_consolidated: bool, can_void: bool, can_replace: bool, can_rebuild: bool, locked_reason: string|null, accept: string, max_mb: string, consolidated: array<string, mixed>, rows: list<array<string, mixed>>}
+     * @return array{can_upload: bool, can_submit: bool, can_remove: bool, can_reorder: bool, can_view: bool, can_view_consolidated: bool, can_void: bool, can_replace: bool, can_rebuild: bool, locked_reason: string|null, accept: string, max_mb: string, max_files: int, max_total_mb: int, types: list<array{key: string, label: string}>, checklist: array<string, mixed>, consolidated: array<string, mixed>, rows: list<array<string, mixed>>}
      */
     private function documentsInfo(PurchaseOrder $po): array
     {
@@ -343,6 +344,11 @@ class PurchaseOrderController extends Controller
             'locked_reason' => ($user?->can('po.upload-files') ?? false) ? PoDocumentRule::addBlockReason($po) : null,
             'accept' => collect((array) config('mms.uploads.allowed_extensions'))->map(fn ($ext) => '.'.$ext)->implode(','),
             'max_mb' => PoDocumentService::maxMegabytes(),
+            // Step 4.2c: the upload form (types of stage "po", limits) and the checklist indicator (information only).
+            'max_files' => (int) config('mms.uploads.max_files_per_request'),
+            'max_total_mb' => (int) floor(((int) config('mms.uploads.max_request_kb')) / 1024),
+            'types' => PoDocumentChecklist::selectable(),
+            'checklist' => PoDocumentChecklist::progress($po),
             'consolidated' => $this->consolidated->info($po),
             'rows' => $this->documents->rowsFor($po, includeVoid: $user?->canAny(['po.upload-files', 'documents.void', 'documents.view-originals']) ?? false),
         ];
@@ -508,4 +514,4 @@ class PurchaseOrderController extends Controller
             'extension_days' => $po->extensions->pluck('extra_days')->values(),
         ];
     }
-}
+}

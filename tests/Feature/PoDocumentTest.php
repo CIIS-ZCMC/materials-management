@@ -14,7 +14,8 @@ use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Activity;
 
 /*
- * Steps 4.2 and 4.2b. qpdf is faked (Process::fake) so the tests do not need the program;
+ * Steps 4.2 and 4.2b (4.2c changed the request shape of the upload: groups[i][type] and groups[i][files][];
+ * the new behaviour is tested in PoDocumentTypesTest). qpdf is faked (Process::fake) so the tests do not need the program;
  * the exit codes 0, 3 and 2 are what "qpdf --check" really returns
  * (docs/PDF-MERGE.md section 3.3). Images need the "gd" PHP extension to build.
  *
@@ -90,6 +91,12 @@ function po_doc_png(bool $interlaced = false): string
     return (string) ob_get_clean();
 }
 
+/** The request body of the upload form (step 4.2c): one group of type po_bundle with these files. */
+function po_doc_groups(UploadedFile ...$files): array
+{
+    return ['groups' => [['type' => 'po_bundle', 'files' => array_values($files)]]];
+}
+
 function po_doc_url(PurchaseOrder $po): string
 {
     return "/purchase-orders/{$po->id}/documents";
@@ -136,7 +143,7 @@ it('stores the PO Bundle privately and creates the record, and the PO stays a dr
     $user = po_doc_user('Procurement');
 
     $this->actingAs($user)
-        ->post(po_doc_url($po), ['file' => po_doc_pdf('Supplier Bundle.pdf')])
+        ->post(po_doc_url($po), po_doc_groups(po_doc_pdf('Supplier Bundle.pdf')))
         ->assertRedirect(route('purchase-orders.show', $po))
         ->assertSessionHasNoErrors();
 
@@ -155,8 +162,8 @@ it('stores the PO Bundle privately and creates the record, and the PO stays a dr
         ->and($document->stored_path)->not->toContain('Supplier');
 
     // Private disk only, never the public one.
-    Storage::disk('local')->assertExists($document->stored_path);
-    Storage::disk('public')->assertMissing($document->stored_path);
+    expect(Storage::disk('local')->exists($document->stored_path))->toBeTrue();
+    expect(Storage::disk('public')->exists($document->stored_path))->toBeFalse();
 
     // 4.2b: uploading does not submit the PO.
     expect($po->fresh()->status)->toBe(PurchaseOrderStatus::Draft);
@@ -174,7 +181,7 @@ it('adds a file to an uploaded or escalated PO without a status change', functio
     $po = PurchaseOrder::factory()->create(['status' => $status]);
 
     $this->actingAs(po_doc_user('Procurement'))
-        ->post(po_doc_url($po), ['file' => po_doc_pdf()])
+        ->post(po_doc_url($po), po_doc_groups(po_doc_pdf()))
         ->assertSessionHasNoErrors();
 
     expect(PoDocument::count())->toBe(1)
@@ -188,7 +195,7 @@ it('refuses a new file once the PO is verified or later (403), and stores nothin
     $po = PurchaseOrder::factory()->create(['status' => $status]);
 
     $this->actingAs(po_doc_user('Procurement'))
-        ->post(po_doc_url($po), ['file' => po_doc_pdf()])
+        ->post(po_doc_url($po), po_doc_groups(po_doc_pdf()))
         ->assertForbidden();
 
     expect(PoDocument::count())->toBe(0)
@@ -201,8 +208,8 @@ it('numbers uploads in the order they arrive', function () {
     $po = PurchaseOrder::factory()->create(['status' => 'draft']);
     $user = po_doc_user('Procurement');
 
-    $this->actingAs($user)->post(po_doc_url($po), ['file' => po_doc_pdf('first.pdf')]);
-    $this->actingAs($user)->post(po_doc_url($po), ['file' => po_doc_pdf('second.pdf')]);
+    $this->actingAs($user)->post(po_doc_url($po), po_doc_groups(po_doc_pdf('first.pdf')));
+    $this->actingAs($user)->post(po_doc_url($po), po_doc_groups(po_doc_pdf('second.pdf')));
 
     expect(po_doc_names())->toBe(['first.pdf', 'second.pdf'])
         ->and(PoDocument::orderBy('sort_order')->pluck('sort_order')->all())->toBe([1, 2]);
@@ -213,7 +220,7 @@ it('gives 403 without po.upload-files and changes nothing', function (string $ro
     $po = PurchaseOrder::factory()->create(['status' => 'draft']);
 
     $this->actingAs(po_doc_user($role))
-        ->post(po_doc_url($po), ['file' => po_doc_pdf()])
+        ->post(po_doc_url($po), po_doc_groups(po_doc_pdf()))
         ->assertForbidden();
 
     expect(PoDocument::count())->toBe(0)
@@ -227,10 +234,10 @@ it('rejects a wrong file type', function () {
     $user = po_doc_user('Procurement');
 
     // A Word file, and a text file that only has a .pdf name.
-    $this->actingAs($user)->post(po_doc_url($po), ['file' => UploadedFile::fake()->create('letter.docx', 20)])
-        ->assertSessionHasErrors('file');
-    $this->actingAs($user)->post(po_doc_url($po), ['file' => UploadedFile::fake()->createWithContent('fake.pdf', 'this is only text')])
-        ->assertSessionHasErrors('file');
+    $this->actingAs($user)->post(po_doc_url($po), po_doc_groups(UploadedFile::fake()->create('letter.docx', 20)))
+        ->assertSessionHasErrors('groups.0.files.0');
+    $this->actingAs($user)->post(po_doc_url($po), po_doc_groups(UploadedFile::fake()->createWithContent('fake.pdf', 'this is only text')))
+        ->assertSessionHasErrors('groups.0.files.0');
 
     expect(PoDocument::count())->toBe(0)
         ->and($po->fresh()->status)->toBe(PurchaseOrderStatus::Draft);
@@ -242,8 +249,8 @@ it('rejects a file over the size limit', function () {
     $tooBig = (int) config('mms.uploads.max_size_kb') + 1;
 
     $this->actingAs(po_doc_user('Procurement'))
-        ->post(po_doc_url($po), ['file' => UploadedFile::fake()->create('big.pdf', $tooBig, 'application/pdf')])
-        ->assertSessionHasErrors(['file' => 'The file is too large. The limit is 10 MB per file.']);
+        ->post(po_doc_url($po), po_doc_groups(UploadedFile::fake()->create('big.pdf', $tooBig, 'application/pdf')))
+        ->assertSessionHasErrors(['groups.0.files.0' => 'The file is too large. The limit is 10 MB per file.']);
 
     expect(PoDocument::count())->toBe(0);
 });
@@ -253,8 +260,8 @@ it('rejects a damaged PDF (qpdf exit 2) with the plain message', function () {
     $po = PurchaseOrder::factory()->create(['status' => 'draft']);
 
     $this->actingAs(po_doc_user('Procurement'))
-        ->post(po_doc_url($po), ['file' => po_doc_pdf()])
-        ->assertSessionHasErrors(['file' => 'The file is damaged or password-protected. Rescan it or remove the password.']);
+        ->post(po_doc_url($po), po_doc_groups(po_doc_pdf()))
+        ->assertSessionHasErrors(['groups.0.files.0' => 'The file is damaged or password-protected. Rescan it or remove the password.']);
 
     expect(PoDocument::count())->toBe(0)
         ->and($po->fresh()->status)->toBe(PurchaseOrderStatus::Draft)
@@ -266,7 +273,7 @@ it('accepts a PDF with warnings (qpdf exit 3)', function () {
     $po = PurchaseOrder::factory()->create(['status' => 'draft']);
 
     $this->actingAs(po_doc_user('Procurement'))
-        ->post(po_doc_url($po), ['file' => po_doc_pdf()])
+        ->post(po_doc_url($po), po_doc_groups(po_doc_pdf()))
         ->assertSessionHasNoErrors();
 
     expect(PoDocument::count())->toBe(1)
@@ -278,8 +285,8 @@ it('rejects a PDF when qpdf cannot be used', function () {
     $po = PurchaseOrder::factory()->create(['status' => 'draft']);
 
     $this->actingAs(po_doc_user('Procurement'))
-        ->post(po_doc_url($po), ['file' => po_doc_pdf()])
-        ->assertSessionHasErrors('file');
+        ->post(po_doc_url($po), po_doc_groups(po_doc_pdf()))
+        ->assertSessionHasErrors('groups.0.files.0');
 
     expect(PoDocument::count())->toBe(0);
 });
@@ -290,7 +297,7 @@ it('turns a JPEG into a PDF page at upload without re-encoding it and keeps the 
     $jpeg = po_doc_jpeg();
 
     $this->actingAs(po_doc_user('Procurement'))
-        ->post(po_doc_url($po), ['file' => UploadedFile::fake()->createWithContent('photo.jpg', $jpeg)])
+        ->post(po_doc_url($po), po_doc_groups(UploadedFile::fake()->createWithContent('photo.jpg', $jpeg)))
         ->assertSessionHasNoErrors();
 
     $document = PoDocument::sole();
@@ -315,7 +322,7 @@ it('applies the phone rotation (EXIF) through the page /Rotate', function () {
     $jpeg = po_doc_jpeg(6); // 6 = rotate 90 degrees clockwise
 
     $this->actingAs(po_doc_user('Procurement'))
-        ->post(po_doc_url($po), ['file' => UploadedFile::fake()->createWithContent('phone.jpg', $jpeg)])
+        ->post(po_doc_url($po), po_doc_groups(UploadedFile::fake()->createWithContent('phone.jpg', $jpeg)))
         ->assertSessionHasNoErrors();
 
     $pdf = Storage::disk('local')->get(PoDocument::sole()->stored_path);
@@ -329,7 +336,7 @@ it('turns a PNG into a PDF page at upload', function () {
     $po = PurchaseOrder::factory()->create(['status' => 'draft']);
 
     $this->actingAs(po_doc_user('Procurement'))
-        ->post(po_doc_url($po), ['file' => UploadedFile::fake()->createWithContent('scan.png', po_doc_png())])
+        ->post(po_doc_url($po), po_doc_groups(UploadedFile::fake()->createWithContent('scan.png', po_doc_png())))
         ->assertSessionHasNoErrors();
 
     $document = PoDocument::sole();
@@ -344,8 +351,8 @@ it('rejects an interlaced PNG', function () {
     $po = PurchaseOrder::factory()->create(['status' => 'draft']);
 
     $this->actingAs(po_doc_user('Procurement'))
-        ->post(po_doc_url($po), ['file' => UploadedFile::fake()->createWithContent('scan.png', po_doc_png(interlaced: true))])
-        ->assertSessionHasErrors('file');
+        ->post(po_doc_url($po), po_doc_groups(UploadedFile::fake()->createWithContent('scan.png', po_doc_png(interlaced: true))))
+        ->assertSessionHasErrors('groups.0.files.0');
 
     expect(PoDocument::count())->toBe(0);
 });
@@ -356,8 +363,8 @@ it('rejects an HEIC photo, even when it is renamed to .jpg', function (string $n
     $heic = "\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic".str_repeat("\x00", 64);
 
     $this->actingAs(po_doc_user('Procurement'))
-        ->post(po_doc_url($po), ['file' => UploadedFile::fake()->createWithContent($name, $heic)])
-        ->assertSessionHasErrors('file');
+        ->post(po_doc_url($po), po_doc_groups(UploadedFile::fake()->createWithContent($name, $heic)))
+        ->assertSessionHasErrors('groups.0.files.0');
 
     expect(PoDocument::count())->toBe(0);
 })->with(['photo.heic', 'photo.jpg']);
@@ -368,7 +375,7 @@ it('leaves the PO as draft and removes the files when the upload fails midway', 
     $po = PurchaseOrder::factory()->create(['status' => 'draft']);
 
     $this->actingAs(po_doc_user('Procurement'))
-        ->post(po_doc_url($po), ['file' => po_doc_pdf()])
+        ->post(po_doc_url($po), po_doc_groups(po_doc_pdf()))
         ->assertServerError();
 
     expect(PoDocument::count())->toBe(0)
@@ -440,7 +447,7 @@ it('deletes a file on a draft PO (row, PDF and original) and closes the gap in t
         ->and(Activity::where('event', 'document_removed')->where('log_name', 'po')->count())->toBe(1);
 
     foreach ($files as $path) {
-        Storage::disk('local')->assertMissing($path);
+        expect(Storage::disk('local')->exists($path))->toBeFalse();
     }
 });
 
@@ -453,7 +460,7 @@ it('does not delete a file once the PO is uploaded (403), and keeps the files', 
         ->assertForbidden();
 
     expect(PoDocument::count())->toBe(1);
-    Storage::disk('local')->assertExists($document->stored_path);
+    expect(Storage::disk('local')->exists($document->stored_path))->toBeTrue();
 });
 
 it('gives 403 for remove without po.upload-files, and 404 for a document of another PO', function () {
@@ -596,7 +603,7 @@ it('lists the documents on the PO detail page and shows the buttons only to the 
     $po = PurchaseOrder::factory()->create(['status' => 'draft']);
     $procurement = po_doc_user('Procurement');
 
-    $this->actingAs($procurement)->post(po_doc_url($po), ['file' => po_doc_pdf()]);
+    $this->actingAs($procurement)->post(po_doc_url($po), po_doc_groups(po_doc_pdf()));
 
     $this->actingAs($procurement)
         ->get(route('purchase-orders.show', $po))

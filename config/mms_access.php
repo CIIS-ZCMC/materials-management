@@ -44,6 +44,7 @@ return [
         'delivery.encode',            // enter Invoice #, IAR #, Fund Cluster, Amount, signatories
         'delivery.upload-docs',       // upload DR, OR, IAR
         'documents.void',             // void or replace a wrongly uploaded document (reason required)
+        'documents.reorder',          // move documents up or down on a submitted (uploaded) PO: MMS staff, e.g. the PO Reviewer (step 4.2d)
         'documents.view-originals',   // open the single original files behind the consolidated PDF, at any PO status (Admin, MMS Head)
 
         // Part 3: monitoring and property documents
@@ -139,6 +140,7 @@ return [
             'permissions' => [
                 'po.review',
                 'po.escalate',
+                'documents.reorder',
                 'extension.manage',
                 'delivery.update-items',
                 'delay.request-termination',

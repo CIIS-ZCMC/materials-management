@@ -2,6 +2,8 @@
 
 namespace App\Enums;
 
+use App\Support\PoDocumentChecklist;
+
 /**
  * What a PO document is (column po_documents.type, string 40: no migration for a new case).
  *
@@ -11,6 +13,11 @@ namespace App\Enums;
  *
  * NoticeOfDelivery (form ZCMC-F-MMS-42, in every real bundle) and GuaranteeLetter (seen in
  * one real bundle) were added in step 4.2b (decision 7 of the Phase 4 plan, approved).
+ *
+ * Step 4.2c: this enum stays the list of strings the database may hold. Which types the upload form
+ * offers, which are required and the labels shown on screen come from config/mms.php
+ * ("documents.types", a SAMPLE list read through App\Support\PoDocumentChecklist). label() asks that
+ * list first and falls back to the text below, so a label is edited in one place.
  */
 enum PoDocumentType: string
 {
@@ -29,7 +36,7 @@ enum PoDocumentType: string
 
     public function label(): string
     {
-        return match ($this) {
+        return PoDocumentChecklist::label($this->value) ?? match ($this) {
             self::PoBundle => 'PO Bundle',
             self::SupplierDocumentChecklist => 'Supplier Document Checklist',
             self::DeliveryReceipt => 'DR',

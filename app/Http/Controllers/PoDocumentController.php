@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\PoDocumentType;
 use App\Enums\PurchaseOrderStatus;
 use App\Http\Requests\ReplacePoDocumentRequest;
 use App\Http\Requests\UploadPoDocumentRequest;
@@ -17,7 +16,7 @@ use Illuminate\Support\Facades\Gate;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
- * The Documents tab of a PO (steps 4.2, 4.2b and 4.3). Every action asks PurchaseOrderPolicy
+ * The Documents tab of a PO (steps 4.2, 4.2b, 4.2c and 4.3). Every action asks PurchaseOrderPolicy
  * (permission + PoDocumentRule) and the Service checks the status rule again under a row lock.
  *
  * Step 4.3: after every change to the documents (upload, replace, void, remove, move) the
@@ -32,20 +31,27 @@ class PoDocumentController extends Controller
     ) {}
 
     /**
-     * Add a file to the PO Bundle. The Form Request asks the Policy (po.upload-files and the PO
-     * status, 403); the Service checks the file and does everything in one transaction.
-     * The PO status does NOT change here: "Submit to Reviewer" does that (submit()).
+     * Add files, each group with its document type (step 4.2c). The Form Request asks the Policy
+     * (po.upload-files and the PO status, 403) and checks the shape; the Service checks every file first
+     * and then saves ALL of them in one transaction (all or nothing). The combined PDF is rebuilt ONCE,
+     * after the whole request, not once per file. The PO status does NOT change here: "Submit to Reviewer"
+     * does that (submit()).
      */
     public function store(UploadPoDocumentRequest $request, PurchaseOrder $purchaseOrder): RedirectResponse
     {
-        $this->documents->upload(
-            $purchaseOrder,
-            $request->file('file'),
-            PoDocumentType::PoBundle,
-            $request->user(),
-        );
+        $groups = collect((array) $request->validated('groups'))
+            ->map(fn (array $group) => [
+                'type' => (string) $group['type'],
+                'files' => array_values((array) $group['files']),
+            ])
+            ->values()
+            ->all();
 
-        $message = "File added to the PO Bundle of PO {$purchaseOrder->po_number}.";
+        $created = $this->documents->uploadMany($purchaseOrder, $groups, $request->user());
+
+        $count = count($created);
+        $types = collect($created)->map(fn (PoDocument $document) => $document->type->label())->unique()->values()->all();
+        $message = ($count === 1 ? '1 file was' : "{$count} files were")." added to PO {$purchaseOrder->po_number} (".implode(', ', $types).').';
 
         if ($purchaseOrder->status === PurchaseOrderStatus::Draft) {
             $message .= ' The PO is still a draft: check the combined PDF, then click "Submit to Reviewer".';
@@ -85,7 +91,7 @@ class PoDocumentController extends Controller
         return $this->afterChange($purchaseOrder, 'The file was removed.');
     }
 
-    /** Move a file one place up or down. Draft and escalated. */
+    /** Move a file one place up or down. Who may, and at which PO status: PoDocumentRule::REORDER (step 4.2d). */
     public function move(Request $request, PurchaseOrder $purchaseOrder, PoDocument $document): RedirectResponse
     {
         $this->ensureBelongs($purchaseOrder, $document);

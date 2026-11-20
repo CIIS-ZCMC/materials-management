@@ -28,7 +28,17 @@
 |                   MMS_EXTENSION_MAX_DAYS in .env, default 90). A second
 |                   extension may be recorded later; each one is capped.
 | uploads.*         Limits for uploaded documents (see the note on PHP limits).
-|                   Allowed types: pdf, jpg, jpeg, png (step 4.2).
+|                   Allowed types: pdf, jpg, jpeg, png (step 4.2). Step 4.2c: several
+|                   files per request (max_files_per_request, max_request_kb).
+| documents.types   Step 4.2c: the document types, ONE list, changed in this file only
+|                   (no database table, no admin screen). Each entry: key (a
+|                   PoDocumentType value), label (shown on screen), required (counts in
+|                   the "x of y required types uploaded" indicator, which is information
+|                   only and never blocks Submit), stage (po = may be chosen in the upload
+|                   form; delivery and exception = not selectable there) and sort.
+|                   THIS LIST IS A SAMPLE until the MMS Office sends the real checklist
+|                   (steps 5.3 and 7.1 review it). Only "PO Bundle" is required for now.
+|                   A new key needs a matching PoDocumentType case (no migration).
 | pdf.qpdf_path     MMS_QPDF_PATH in .env: the ABSOLUTE path of the qpdf program
 |                   (see docs/PDF-MERGE.md section 8). Used to check every
 |                   uploaded PDF (step 4.2) and to build the consolidated PDF
@@ -130,15 +140,55 @@ return [
     | post_max_size at least (files per request x max_size_kb).
     | Set upload_max_filesize = 40M and post_max_size = 50M in the php.ini that
     | "php --ini" shows (the hospital server may differ).
+    |
+    | Step 4.2c: one upload form may send several files (all types together).
+    | max_files_per_request is the most files in one request. max_request_kb is the
+    | most TOTAL size of one request in KB (default 45 MB = 46080). Keep it BELOW
+    | post_max_size (50M): the files travel in the same request as the form fields,
+    | and a request over post_max_size is dropped by PHP before Laravel can give a
+    | plain message. With 10 MB per file the total is the number that matters: 4 files
+    | of 10 MB fit, 5 do not. PHP also has max_file_uploads (default 20): keep
+    | max_files_per_request at or below it. The upload form and the Form Request both
+    | check these two numbers first.
     */
     'uploads' => [
         'max_size_kb' => (int) env('MMS_MAX_UPLOAD_KB', 10240), // 10 MB per file
         'allowed_extensions' => ['pdf', 'jpg', 'jpeg', 'png'],
+        'max_files_per_request' => (int) env('MMS_MAX_FILES_PER_REQUEST', 10),
+        'max_request_kb' => (int) env('MMS_MAX_REQUEST_KB', 46080), // 45 MB in total, below post_max_size 50M
     ],
 
     'pdf' => [
         // Absolute path, for example C:\tools\qpdf\bin\qpdf.exe or /usr/bin/qpdf.
         'qpdf_path' => env('MMS_QPDF_PATH'),
+    ],
+
+    /*
+    | Step 4.2c: SAMPLE list of document types and checklist. Replace it (this one place)
+    | when the MMS Office sends the real checklist. See the note at the top of this file.
+    | stage: po = in the upload dropdown; delivery / exception = not selectable there.
+    */
+    'documents' => [
+        'checklist_is_sample' => true,
+
+        'types' => [
+            ['key' => 'po_bundle', 'label' => 'PO Bundle', 'required' => true, 'stage' => 'po', 'sort' => 10],
+            ['key' => 'supplier_document_checklist', 'label' => 'Supplier Document Checklist', 'required' => false, 'stage' => 'po', 'sort' => 20],
+            ['key' => 'guarantee_letter', 'label' => 'Guarantee Letter', 'required' => false, 'stage' => 'po', 'sort' => 30],
+            ['key' => 'supporting_document', 'label' => 'Supporting Document', 'required' => false, 'stage' => 'po', 'sort' => 40],
+            ['key' => 'other', 'label' => 'Others', 'required' => false, 'stage' => 'po', 'sort' => 99],
+
+            // Delivery documents (Phase 5): listed so the filter shows their names; not selectable in this step.
+            ['key' => 'notice_of_delivery', 'label' => 'Notice of Delivery', 'required' => false, 'stage' => 'delivery', 'sort' => 110],
+            ['key' => 'dr', 'label' => 'DR', 'required' => false, 'stage' => 'delivery', 'sort' => 120],
+            ['key' => 'iar', 'label' => 'IAR', 'required' => false, 'stage' => 'delivery', 'sort' => 130],
+            ['key' => 'or', 'label' => 'OR', 'required' => false, 'stage' => 'delivery', 'sort' => 140],
+
+            // Flow A and Flow B documents.
+            ['key' => 'notice_of_termination', 'label' => 'Notice of Termination', 'required' => false, 'stage' => 'exception', 'sort' => 210],
+            ['key' => 'pull_out_form', 'label' => 'Pull-Out Form', 'required' => false, 'stage' => 'exception', 'sort' => 220],
+            ['key' => 'advance_notice_letter', 'label' => 'Advance Notice Letter (OMCC)', 'required' => false, 'stage' => 'exception', 'sort' => 230],
+        ],
     ],
 
     'bizbox' => [
@@ -259,4 +309,4 @@ return [
         ],
     ],
 
-];
+];
