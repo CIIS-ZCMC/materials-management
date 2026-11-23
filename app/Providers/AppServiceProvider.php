@@ -4,11 +4,14 @@ namespace App\Providers;
 
 use App\Contracts\ItemCategoryRepositoryInterface;
 use App\Contracts\ItemRepositoryInterface;
+use App\Contracts\PersonnelDirectory;
+use App\Contracts\PersonnelRepositoryInterface;
 use App\Contracts\PurchaseOrderProvider;
 use App\Contracts\PurchaseOrderRepositoryInterface;
 use App\Contracts\SupplierRepositoryInterface;
 use App\Contracts\UnitRepositoryInterface;
 use App\Contracts\UserRepositoryInterface;
+use App\Integrations\Personnel\LocalPersonnelDirectory;
 use App\Integrations\PurchaseOrders\BizBoxPurchaseOrderProvider;
 use App\Integrations\PurchaseOrders\LocalPurchaseOrderProvider;
 use App\Listeners\AuditAuthEvents;
@@ -16,6 +19,7 @@ use App\Models\User;
 use App\Policies\ActivityPolicy;
 use App\Repositories\ItemCategoryRepository;
 use App\Repositories\ItemRepository;
+use App\Repositories\PersonnelRepository;
 use App\Repositories\PurchaseOrderRepository;
 use App\Repositories\SupplierRepository;
 use App\Repositories\UnitRepository;
@@ -65,6 +69,18 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(
             PurchaseOrderRepositoryInterface::class,
             PurchaseOrderRepository::class,
+        );
+
+        // Step 2.3 / 5.0: the personnel directory (decision 4). Today the dummy
+        // `personnel` table; Phase 13 swaps LocalPersonnelDirectory for a UMIS class here.
+        $this->app->bind(
+            PersonnelRepositoryInterface::class,
+            PersonnelRepository::class,
+        );
+
+        $this->app->bind(
+            PersonnelDirectory::class,
+            LocalPersonnelDirectory::class,
         );
 
         // Step 3.4: where PO details come from. The BizBox provider is created

@@ -1,9 +1,11 @@
 <?php
 
 use App\Http\Controllers\Admin\AuditLogController;
+use App\Http\Controllers\Admin\IarNumberController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\ItemCategoryController;
 use App\Http\Controllers\ItemController;
+use App\Http\Controllers\PersonnelController;
 use App\Http\Controllers\PoDocumentController;
 use App\Http\Controllers\PoPrintController;
 use App\Http\Controllers\PurchaseOrderController;
@@ -82,6 +84,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::put('{supplier}', 'update')->name('update');
             Route::patch('{supplier}/active', 'toggleActive')->name('active');
         });
+
+    // Step 2.3 / 5.0: read-only personnel directory (dummy UMIS) for the pickers on the delivery and
+    // property screens. No menu section: it is JSON, not a page. PersonnelPolicy::viewAny (checked in
+    // SearchPersonnelRequest) allows delivery.encode, delivery.upload-docs, par.generate or ics.generate.
+    // Query: ?search=&role=inspector|end-user|property-custodian&limit=
+    Route::get('personnel/search', [PersonnelController::class, 'search'])->name('personnel.search');
 
     // Step 2.2: item catalog. One section gate ("catalog") opens the three pages;
     // the policies decide who may change data (catalog.manage) and who may only view
@@ -175,6 +183,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('audit-log', [AuditLogController::class, 'index'])
             ->middleware('can:section.audit-log')
             ->name('audit-log.index');
+
+        // Step 5.1: IAR number series (Admin). The section gate opens the page; IarNumberPolicy
+        // and SetIarCounterRequest check iar.manage.
+        Route::middleware('can:section.iar-numbers')
+            ->controller(IarNumberController::class)
+            ->group(function () {
+                Route::get('iar-numbers', 'index')->name('iar-numbers.index');
+                Route::put('iar-numbers/counter', 'setCounter')->name('iar-numbers.counter');
+            });
     });
 });
 

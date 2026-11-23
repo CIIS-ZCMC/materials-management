@@ -270,6 +270,8 @@ return [
             \App\Models\Unit::class => 'Unit',
             \App\Models\Item::class => 'Item',
             \App\Models\PurchaseOrder::class => 'Purchase order',
+            \App\Models\IarSeries::class => 'IAR series',
+            \App\Models\IarNumber::class => 'IAR number',
         ],
 
         'fields' => [
@@ -305,6 +307,9 @@ return [
             'quantities' => 'Delivery quantities',
             'extension' => 'Extension',
             'documents' => 'Documents',
+            'next_number' => 'Next IAR number',
+            'iar_number' => 'IAR number',
+            'series' => 'Series',
         ],
 
         'events' => [
@@ -322,6 +327,9 @@ return [
             'documents_reordered' => 'Documents reordered',
             'document_voided' => 'Document voided',
             'document_replaced' => 'Document replaced',
+            'iar_number_reserved' => 'IAR number reserved',
+            'iar_number_voided' => 'IAR number voided',
+            'iar_counter_set' => 'IAR counter set',
             'login' => 'Login',
             'login_failed' => 'Failed login',
             'login_blocked' => 'Login blocked',

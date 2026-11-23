@@ -80,11 +80,13 @@ return [
         'users.manage',               // create, edit, deactivate users
         'roles.manage',               // assign roles, job presets and per-user permissions
         'audit.view',                 // read the audit log
+        'iar.manage',                 // Admin: IAR number series, set counters, see voided numbers (step 5.1)
         'reports.view',               // dashboard, archive search, exports
     ],
 
     'roles' => [
         'Admin' => [
+            'iar.manage',
             'po.view',
             'po.edit',
             'users.manage',
@@ -215,6 +217,7 @@ return [
         'reports' => ['reports.view'],
         'users' => ['users.manage', 'roles.manage'],
         'audit-log' => ['audit.view'],
+        'iar-numbers' => ['iar.manage'],
     ],
 
     'retired_permissions' => [
