@@ -50,8 +50,16 @@
 |                   today that is only a stub that throws "BizBox is not configured",
 |                   so leave it false until Phase 13. After changing .env:
 |                   php artisan config:clear
-| print.*           Fixed text of the printed PO forms (step 4.5; the print itself
-|                   is built in 4.6 and 4.7). Nothing here is typed per PO.
+| print.*           Fixed text of the printed PO forms (step 4.5). Form 13 is printed
+|                   by PoPrintService (step 4.6); form 04A follows in step 4.7.
+|                   Nothing here is typed per PO.
+|                   print.paper               "bond" (long bond, 8.5 x 13 in) or "a4".
+|                                             MMS_PRINT_PAPER in .env, default bond.
+|                                             Not confirmed by the office yet.
+|                   print.header_13           The four header lines of form 13.
+|                   print.certification_13    The Conforme text of form 13, exactly as
+|                                             printed on the form (the scans spell
+|                                             "confroms"; confirm with the office).
 |                   print.place_of_delivery   name and address lines of form 13.
 |                   print.payment_term        "Payment Term" text of form 13.
 |                   print.signatories         The Medical Center Chief, newest
@@ -197,6 +205,18 @@ return [
     ],
 
     'print' => [
+        // Step 4.6. Set MMS_PRINT_PAPER in .env to "a4" if the office prints on A4. After changing .env: php artisan config:clear
+        'paper' => env('MMS_PRINT_PAPER', 'bond'),
+
+        'header_13' => [
+            'Republic of the Philippines',
+            'Department of Health',
+            'ZAMBOANGA CITY MEDICAL CENTER',
+            'Dr. D. Evangelista St., Sta. Catalina, Zamboanga City, 7000',
+        ],
+
+        'certification_13' => 'I hereby certify that I am authorized to receive this document and that the company confroms to the Terms and Conditions set forth on the final page of this document.',
+
         'place_of_delivery' => [
             'name' => 'Zamboanga City Medical Center',
             'address' => 'Dr. Evangelista Street Sta. Catalina Zamboanga City Zamboanga Del Sur Philippines 7000',
@@ -295,6 +315,7 @@ return [
             'password_reset' => 'Password reset',
             'access_changed' => 'Access changed',
             'status_changed' => 'Status changed',
+            'po_printed' => 'PO printed',
             'extension_recorded' => 'Extension recorded',
             'document_uploaded' => 'Document uploaded',
             'document_removed' => 'Document removed',

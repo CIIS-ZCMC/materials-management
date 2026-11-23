@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Support\ExtensionRule;
 use App\Support\PoDocumentRule;
 use App\Support\PoEditRule;
+use App\Support\PoPrintRule;
 use App\Support\PoReviewRule;
 use Illuminate\Auth\Access\Response;
 
@@ -30,6 +31,8 @@ use Illuminate\Auth\Access\Response;
  *                  PoDocumentRule::staffMayViewOriginals).
  * documents.view-originals  opens any single (original) document file at any status (Admin and MMS Head)
  * po.view          opens the consolidated PDF (a draft's only for people who handle the files)
+ * po.view          also prints the standard PO from the system (step 4.6, printOrder): any status, but only a PO made in
+ *                  this system; a BizBox PO is refused (PoPrintRule). No separate permission.
  * Auto-discovered: App\Models\PurchaseOrder -> App\Policies\PurchaseOrderPolicy.
  */
 class PurchaseOrderPolicy
@@ -105,6 +108,18 @@ class PurchaseOrderPolicy
         }
 
         $reason = PoReviewRule::sendBackBlockReason($purchaseOrder);
+
+        return $reason === null ? Response::allow() : Response::deny($reason);
+    }
+
+    /** "Print PO" (step 4.6): po.view, and only a PO made in this system (PoPrintRule). Any status. */
+    public function printOrder(User $actor, PurchaseOrder $purchaseOrder): Response
+    {
+        if (! $actor->can('po.view')) {
+            return Response::deny();
+        }
+
+        $reason = PoPrintRule::blockReason($purchaseOrder);
 
         return $reason === null ? Response::allow() : Response::deny($reason);
     }

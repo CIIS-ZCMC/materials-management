@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\ItemCategoryController;
 use App\Http\Controllers\ItemController;
 use App\Http\Controllers\PoDocumentController;
+use App\Http\Controllers\PoPrintController;
 use App\Http\Controllers\PurchaseOrderController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\UnitController;
@@ -58,6 +59,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::post('{document}/replace', 'replace')->whereNumber(['purchaseOrder', 'document'])->name('replace');
             Route::delete('{document}', 'destroy')->whereNumber(['purchaseOrder', 'document'])->name('destroy');
         });
+
+    // Step 4.6: "Print PO" (form ZCMC-F-PROC-13). po.view and PoPrintRule are checked by PurchaseOrderPolicy::printOrder
+    // (a BizBox PO is refused). The PDF is generated on each call, never stored, and every call is audited (po_printed).
+    // ?download=1 sends it as a file instead of opening it in the viewer.
+    Route::get('purchase-orders/{purchaseOrder}/print', PoPrintController::class)
+        ->middleware('can:section.purchase-orders')
+        ->whereNumber('purchaseOrder')
+        ->name('purchase-orders.print');
 
     // Step 2.1: the section gate opens the menu; SupplierPolicy decides who
     // may change data (suppliers.manage) and who may only view (suppliers.view).

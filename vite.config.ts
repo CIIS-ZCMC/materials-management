@@ -5,7 +5,17 @@ import tailwindcss from '@tailwindcss/vite';
 import react, { reactCompilerPreset } from '@vitejs/plugin-react';
 import laravel from 'laravel-vite-plugin';
 import { bunny } from 'laravel-vite-plugin/fonts';
+import { networkInterfaces } from 'node:os';
 import { defineConfig, lazyPlugins } from 'vite-plus';
+
+// The LAN IPv4 address of THIS computer, so the same file works at the office and at home.
+const lanIp =
+    Object.values(networkInterfaces())
+        .flat()
+        .find(
+            (i) =>
+                i && !i.internal && String(i.family).replace('IPv', '') === '4',
+        )?.address ?? 'localhost';
 
 export default defineConfig({
     plugins: lazyPlugins(() => [
@@ -31,7 +41,7 @@ export default defineConfig({
     server: {
         host: '0.0.0.0',
         hmr: {
-            host: '10.10.175.89', // Must match your current IP4 in the ipconfig
+            host: lanIp,
         },
         watch: {
             ignored: [

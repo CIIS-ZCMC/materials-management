@@ -9,6 +9,7 @@ import type { PoDocumentsData } from '@/components/purchase-orders/po-documents-
 import { formatPhp, orDash } from '@/components/purchase-orders/po-format';
 import PoHistoryList from '@/components/purchase-orders/po-history-list';
 import type { HistoryEntry } from '@/components/purchase-orders/po-history-list';
+import PoPrintButton from '@/components/purchase-orders/po-print-button';
 import PoReviewActions from '@/components/purchase-orders/po-review-actions';
 import PoStatusBadge from '@/components/purchase-orders/po-status-badge';
 import PoSubmitButton from '@/components/purchase-orders/po-submit-button';
@@ -235,6 +236,8 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                     <div className="flex flex-wrap items-center gap-2">
                         {/* Verify / Escalate (PO Reviewer) and Send back (Admin). The server decides which are drawn. */}
                         <PoReviewActions poId={po.id} poNumber={po.po_number} dueDate={po.due_date} review={po.review} />
+                        {/* Print PO (step 4.6): only a PO made in the system. Opens the PDF in a new tab; nothing is stored. */}
+                        <PoPrintButton poId={po.id} source={po.source} />
                         {po.edit.allowed && (
                             <Button asChild size="sm">
                                 <Link href={`/purchase-orders/${po.id}/edit`}>
