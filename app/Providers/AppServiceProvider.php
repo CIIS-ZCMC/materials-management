@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Contracts\DeliveryRepositoryInterface;
 use App\Contracts\ItemCategoryRepositoryInterface;
 use App\Contracts\ItemRepositoryInterface;
 use App\Contracts\PersonnelDirectory;
@@ -17,6 +18,7 @@ use App\Integrations\PurchaseOrders\LocalPurchaseOrderProvider;
 use App\Listeners\AuditAuthEvents;
 use App\Models\User;
 use App\Policies\ActivityPolicy;
+use App\Repositories\DeliveryRepository;
 use App\Repositories\ItemCategoryRepository;
 use App\Repositories\ItemRepository;
 use App\Repositories\PersonnelRepository;
@@ -69,6 +71,12 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(
             PurchaseOrderRepositoryInterface::class,
             PurchaseOrderRepository::class,
+        );
+
+        // Step 5.2: reads of delivery batches.
+        $this->app->bind(
+            DeliveryRepositoryInterface::class,
+            DeliveryRepository::class,
         );
 
         // Step 2.3 / 5.0: the personnel directory (decision 4). Today the dummy

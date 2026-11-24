@@ -1,7 +1,8 @@
 import { Head, Link } from '@inertiajs/react';
-import { ArrowLeft, Pencil, Truck } from 'lucide-react';
+import { ArrowLeft, Pencil } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { ComingSoon } from '@/components/coming-soon';
+import type { PoDeliveriesData } from '@/components/deliveries/delivery-types';
+import PoDeliveriesPanel from '@/components/deliveries/po-deliveries-panel';
 import Heading from '@/components/heading';
 import OverdueBadgeSlot from '@/components/purchase-orders/overdue-badge-slot';
 import PoDocumentsPanel from '@/components/purchase-orders/po-documents-panel';
@@ -79,6 +80,7 @@ type PurchaseOrder = {
     escalation: { reason: string | null; by: string | null; at: string } | null;
     history: HistoryEntry[];
     documents: PoDocumentsData;
+    deliveries: PoDeliveriesData;
 };
 
 type Props = { purchaseOrder: PurchaseOrder };
@@ -367,9 +369,8 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                     </div>
                 )}
 
-                {tab === 'deliveries' && (
-                    <ComingSoon embedded title="Deliveries" description="Deliveries, IARs and delivered quantities for this PO will appear here." icon={Truck} step="5.2" />
-                )}
+                {/* Step 5.2: the PO's deliveries (one IAR each) and the Record delivery button. */}
+                {tab === 'deliveries' && <PoDeliveriesPanel poId={po.id} deliveries={po.deliveries} />}
 
                 {/* Step 4.2: the document list, and the PO Bundle upload for people with po.upload-files. */}
                 {tab === 'documents' && <PoDocumentsPanel poId={po.id} isDraft={po.status.value === 'draft'} documents={po.documents} />}

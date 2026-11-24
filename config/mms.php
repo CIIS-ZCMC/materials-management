@@ -86,6 +86,9 @@
 |                                             it only after a 04A print test shows it fits.
 |                   Values come from the November 2026 scans (docs/PO-TEMPLATE.md);
 |                   the office must confirm them.
+| delivery.min_inspectors / max_inspectors  Step 5.2: how many inspectors one delivery
+|                   may carry (MMS_DELIVERY_MIN_INSPECTORS, MMS_DELIVERY_MAX_INSPECTORS;
+|                   default 1 and 3). The end-user is always exactly one person.
 | audit.subject_types  Model class => label shown in the Audit Log filter.
 |                   Later steps add Delivery, etc. here.
 | audit.fields      Property key => label for the "what changed" column.
@@ -136,6 +139,10 @@ return [
 
         // Step 3.5: the most days a single extension may add.
         'extension_max_days' => (int) env('MMS_EXTENSION_MAX_DAYS', 90),
+
+        // Step 5.2: how many inspectors one delivery may carry (the end-user is always exactly one).
+        'min_inspectors' => (int) env('MMS_DELIVERY_MIN_INSPECTORS', 1),
+        'max_inspectors' => (int) env('MMS_DELIVERY_MAX_INSPECTORS', 3),
     ],
 
     /*
@@ -272,6 +279,7 @@ return [
             \App\Models\PurchaseOrder::class => 'Purchase order',
             \App\Models\IarSeries::class => 'IAR series',
             \App\Models\IarNumber::class => 'IAR number',
+            \App\Models\Delivery::class => 'Delivery',
         ],
 
         'fields' => [
@@ -310,6 +318,14 @@ return [
             'next_number' => 'Next IAR number',
             'iar_number' => 'IAR number',
             'series' => 'Series',
+            'purchase_order' => 'PO',
+            'invoice_no' => 'Invoice no.',
+            'iar_series' => 'IAR series',
+            'fund_cluster' => 'Fund cluster',
+            'amount' => 'Amount',
+            'date_received' => 'Date received',
+            'inspectors' => 'Inspectors',
+            'end_user' => 'End-user',
         ],
 
         'events' => [

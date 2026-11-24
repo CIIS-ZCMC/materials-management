@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\IarNumberController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\DeliveryController;
 use App\Http\Controllers\ItemCategoryController;
 use App\Http\Controllers\ItemController;
 use App\Http\Controllers\PersonnelController;
@@ -135,9 +136,24 @@ Route::middleware(['auth', 'verified'])->group(function () {
                 });
         });
 
-    Route::inertia('deliveries', 'deliveries/index')
-        ->middleware('can:section.deliveries')
-        ->name('deliveries.index');
+    // Step 5.2: delivery batches (one IAR each). The section gate opens the pages; DeliveryPolicy checks
+    // delivery.encode (record, edit, void) and DeliveryRule checks the PO and delivery status. Reading needs
+    // po.view or a delivery.* permission. 'create' and 'iar-suggestion' must stay above the {delivery} routes.
+    // Create needs ?purchase_order=ID (a delivery always belongs to a PO).
+    Route::middleware('can:section.deliveries')
+        ->controller(DeliveryController::class)
+        ->prefix('deliveries')
+        ->name('deliveries.')
+        ->group(function () {
+            Route::get('/', 'index')->name('index');
+            Route::get('create', 'create')->name('create');
+            Route::get('iar-suggestion', 'iarSuggestion')->name('iar-suggestion');
+            Route::post('/', 'store')->name('store');
+            Route::get('{delivery}', 'show')->whereNumber('delivery')->name('show');
+            Route::get('{delivery}/edit', 'edit')->whereNumber('delivery')->name('edit');
+            Route::put('{delivery}', 'update')->whereNumber('delivery')->name('update');
+            Route::post('{delivery}/void', 'voidDelivery')->whereNumber('delivery')->name('void');
+        });
 
     Route::inertia('property-documents', 'property-documents/index')
         ->middleware('can:section.property-documents')

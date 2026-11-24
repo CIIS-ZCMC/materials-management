@@ -12,6 +12,7 @@ use App\Http\Requests\VerifyPurchaseOrderRequest;
 use App\Models\PoExtension;
 use App\Models\PoItem;
 use App\Models\PurchaseOrder;
+use App\Services\DeliveryService;
 use App\Services\PoConsolidatedPdfService;
 use App\Services\PoDocumentService;
 use App\Services\PoExtensionService;
@@ -39,6 +40,7 @@ class PurchaseOrderController extends Controller
         private readonly PoHistoryService $history,
         private readonly PoDocumentService $documents,
         private readonly PoConsolidatedPdfService $consolidated,
+        private readonly DeliveryService $deliveries,
     ) {}
 
     public function index(Request $request): Response
@@ -315,6 +317,8 @@ class PurchaseOrderController extends Controller
             'escalation' => $po->status === PurchaseOrderStatus::Escalated ? $this->history->latestEscalation($po) : null,
             'history' => $this->history->forPurchaseOrder($po),
             'documents' => $this->documentsInfo($po),
+            // Step 5.2: the Deliveries tab (rows and the Record delivery button).
+            'deliveries' => $this->deliveries->panel($po),
         ];
     }
 
