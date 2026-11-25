@@ -54,7 +54,7 @@ Numbers to remember: 40 permissions, CONTEXT.md decisions run to 54 (the next ne
 9. **Known gaps kept:** the deliveries list does not use `useLiveSearch` / `PaginationBar`; the PO Documents tab shows the file type as small grey text.
 10. **Real data.** Never attach real office files. IAR scans and the real sequencing sheet stay out of chats; use sanitized samples.
 11. **Environment.** Windows, PowerShell, Pest. Code is written without running it, so the first test run may show small errors in the tests themselves: paste the output and the session fixes it. Tests use SQLite; the `deliveries` foreign-key migration skips SQLite.
-12. **Roles and permissions are left as they are (decision of 2026-11-25).** All current users are dummy users. Before go-live, ask the real MMS staff what each person does and set their job presets then. The system already allows a user to hold more than one job (CONTEXT.md, access rules), so a colleague can cover an absent staff member by adding a job, and the audit log records the change. Open question to add (see section 7): who records the delivery (IAR number, documents) and who enters the quantities, and who covers for whom. Today: the Encoder records the delivery and files, the PO Reviewer enters the quantities (`delivery.update-items`). Do NOT change permissions in 6.1b.
+12. **Roles and permissions are left as they are (decision of 2026-11-25).** All current users are dummy users. Before go-live, ask the real MMS staff what each person does and set their job presets then. The system already allows a user to hold more than one job (CONTEXT.md, access rules), so a colleague can cover an absent staff member by adding a job, and the audit log records the change. Open question (already in PROGRESS.md and CONTEXT.md): who records the delivery (IAR number, documents) and who enters the quantities, and who covers for whom. Today: the Encoder records the delivery and files, the PO Reviewer enters the quantities (`delivery.update-items`). Do NOT change permissions in 6.1b.
 
 ---
 
@@ -95,7 +95,7 @@ These are NOT final. They are built so that MMS's final answer is a configuratio
 >
 > I'm Vvv, building the MMS Procurement Monitoring System (Laravel + React/Inertia starter kit, TypeScript, Tailwind, Spatie permissions, MySQL) for the Materials Management Section at ZCMC. I'm new to React, so explain React and Inertia parts briefly in plain words.
 >
-> Rules: (1) Work only on the step named below. Do not change completed steps except where this step needs it. (2) Give complete files with full paths, only new or changed files, and exact PowerShell commands (config:clear, route:clear, wayfinder:generate, npm run build, restart composer dev). (3) Follow CONTEXT.md; if something is missing or conflicts, ask me before guessing. (4) No email: where the flow says "email", fire a Laravel event or record a pending notice only. (5) BEFORE CODING, show me the migration summary, new permissions, routes and rules, and wait for my OK. Tell me before adding a library, a permission or a migration. (6) Tell me which existing tests your change could break, and say so if you changed an existing test. (7) The code may not be run in the session: the first test run can show small errors in the tests, I will paste the output and you fix it; say clearly what was and was not run. (8) At the end give: how to test (what to click, what I should see), the updated PROGRESS.md and CONTEXT.md (new decision numbers start at **55**) as find-and-replace blocks, and the files to attach next time. (9) If the chat runs long, stop at a safe point, update PROGRESS.md with what is done and the next micro-step. (10) Environment: Windows, PowerShell, Pest with SQLite; if a test needs a real program (qpdf), use a closed temp file and skip the test when the program is missing. (11) Start your answer with: files you used, files changed, files created.
+> Rules: (1) Work only on the step named below. Do not change completed steps except where this step needs it. (2) Give complete files with full paths, only new or changed files, and exact PowerShell commands (config:clear, route:clear, wayfinder:generate, npm run build, restart composer dev). (3) Follow CONTEXT.md; if something is missing or conflicts, ask me before guessing. (4) No email: where the flow says "email", fire a Laravel event or record a pending notice only. (5) BEFORE CODING, show me the migration summary, new permissions, routes and rules, and wait for my OK. Tell me before adding a library, a permission or a migration. (6) Tell me which existing tests your change could break, and say so if you changed an existing test. (7) The code may not be run in the session: the first test run can show small errors in the tests, I will paste the output and you fix it; say clearly what was and was not run. (8) At the end give: how to test (what to click, what I should see), the updated PROGRESS.md and CONTEXT.md (new decision numbers start at **55**) as find-and-replace blocks; PROGRESS.md and CONTEXT.md were already updated for the planning on 2026-11-25, so only add what the step builds, and the files to attach next time. (9) If the chat runs long, stop at a safe point, update PROGRESS.md with what is done and the next micro-step. (10) Environment: Windows, PowerShell, Pest with SQLite; if a test needs a real program (qpdf), use a closed temp file and skip the test when the program is missing. (11) Start your answer with: files you used, files changed, files created.
 >
 > Project rules to keep: Controller -> Service -> Repository, Policies and Form Requests; rules in `App\Support\*Rule` classes used by both Policy and Service; every status change through `StatusTransition::apply()`; audit through `App\Support\Audit`; money in centavos through `App\Support\Money`; quantities through `App\Support\Quantity`; PO row locked before delivery row; derived values are computed, never stored (decision in 1.4).
 
@@ -220,43 +220,7 @@ These are NOT final. They are built so that MMS's final answer is a configuratio
 
 ---
 
-## 7. Edits to make in your own files
-
-### PROGRESS.md
-
-Replace the Phase 6 lines with:
-
-```
-## Phase 6: Part 3, monitoring and property documents (plan: PHASE-6-PLAN.md)
-- [x] 6.1 Update delivered items (running totals). Built 2026-11-25, DeliveryItemTest 29 passed (341 assertions), browser check by the user: working; CONTEXT.md decisions 49 to 54.
-- [ ] 6.1b One delivery = one IAR = one set of quantities (revision of 6.1). Found 2026-11-25 after talking to an MMS staff member: every delivery has its own IAR, quantity and documents. At most one active row per PO line per delivery; row date = delivery date received; screen explains "record a new delivery for a new IAR". No permission change. CONTEXT.md decision 55.
-- [ ] 6.2 Equipment decision and property records. UNBLOCKED on PROVISIONAL defaults (PHASE-6-PLAN section 4); confirm with MMS later (config change only).
-- [!] 6.3 Printable PAR / Sub-PAR / ICS. Needs 6.2 and the blank forms.
-```
-
-Add to "Open questions":
-
-```
-- 2026-11-25 (roles): all users are dummy users. Before go-live confirm with the real MMS staff who records the delivery (IAR number, documents), who enters the quantities, and who covers for whom. A user may hold several jobs (cover for an absent colleague); nothing to build. Today: Encoder records the delivery, PO Reviewer enters the quantities.
-- 2026-11-25 (6.2, PROVISIONAL): Q4 to Q7 of PHASE-6-PLAN.md are built on provisional defaults (above 50,000 = PAR + Sub-PAR; 1,000 to 50,000 = ICS; below 1,000 neither, remarks required; Inventory Team generates; Sub-PAR user = end-user; numbering like the IAR pattern). Confirm with MMS (and with Accounting that 50,000 and 1,000 are the right lines); the final answer is a config change.
-- 2026-11-25 (6.3): Q8 (stored or only generated, paper size; default generated and downloaded, bond) and the blank PAR, Sub-PAR and ICS forms.
-```
-
-Remove the older open-question lines for Q1 to Q3 and Q4 to Q7 of this plan if they are still there.
-
-### CONTEXT.md
-
-Add after decision 54 (renumber if you added others):
-
-```
-55. **One delivery = one IAR = one set of quantities (step 6.1b, planned 2026-11-25; fill in when built):** after talking to an MMS staff member: every delivery has its own documents and its own IAR. A delivery has at most ONE ACTIVE `delivery_items` row per PO line (a voided row does not count; no unique index). The row's `delivered_on` comes from the delivery's `date_received`. A second quantity for the same line belongs to a NEW delivery with a NEW IAR, recorded by the Encoder from the PO page. Supersedes the "same line on several dates inside one delivery" part of decision 49 and the date part of Q2. Permissions unchanged.
-56. **Phase 6.2 on provisional defaults (planned 2026-11-25; fill in when built):** MMS has not given the final PAR / ICS rule. Built on: equipment above 50,000 = PAR + Sub-PAR; 1,000 up to and including 50,000 = ICS; below 1,000 neither, remarks required. Limits only in `config/mms.php` with `property.provisional` = true, applied by one rule class; each property record snapshots the price, document type, band and `rule_provisional`; wrong records are voided and reissued; numbering follows the IAR pattern per document type and year. Inventory Team generates; Sub-PAR user = personnel directory role `end-user`. Confirm with MMS later; the final rule is a config change.
-57. **Roles are dummy for now (2026-11-25):** all current users are dummy users. Job presets and permissions stay as built until the real MMS staff are set up; then confirm each person's job. A user may hold several jobs (absence cover), already supported.
-```
-
----
-
-## 8. Order to follow
+## 7. Order to follow
 
 1. Section 1 "Before 6.1b" checklist.
 2. Run **6.1b** in its own chat (prompt in section 6, attachments listed there).
