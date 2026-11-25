@@ -458,7 +458,7 @@ it('still lets Procurement submit when a required type is missing', function () 
 
 /* ---------------------------------------------------------------- the list in config/mms.php */
 
-it('keeps the sample list and the enum in step: every case is listed, every key is a case, only PO Bundle is required', function () {
+it('keeps the sample list and the enum in step: every case is listed, every key is a case, PO Bundle and the delivery DR, IAR, OR are required', function () {
     foreach (PoDocumentType::cases() as $case) {
         expect(PoDocumentChecklist::entry($case->value))->not->toBeNull("{$case->value} is missing from mms.documents.types");
     }
@@ -467,7 +467,9 @@ it('keeps the sample list and the enum in step: every case is listed, every key 
         expect(PoDocumentType::tryFrom($row['key']))->not->toBeNull("{$row['key']} is not a PoDocumentType value");
     }
 
-    expect(collect(PoDocumentChecklist::entries())->where('required', true)->pluck('key')->all())->toBe(['po_bundle'])
+    // Step 5.3: DR, IAR and OR are required for a DELIVERY (the completeness gate); the PO checklist still counts only the PO Bundle.
+    expect(collect(PoDocumentChecklist::entries())->where('required', true)->pluck('key')->all())->toBe(['po_bundle', 'dr', 'iar', 'or'])
+        ->and(array_keys(PoDocumentChecklist::deliveryRequired()))->toBe(['dr', 'iar', 'or'])
         ->and(config('mms.documents.checklist_is_sample'))->toBeTrue();
 });
 

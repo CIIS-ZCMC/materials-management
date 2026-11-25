@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\IarNumberController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\DeliveryController;
+use App\Http\Controllers\DeliveryDocumentController;
 use App\Http\Controllers\ItemCategoryController;
 use App\Http\Controllers\ItemController;
 use App\Http\Controllers\PersonnelController;
@@ -153,6 +154,23 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::get('{delivery}/edit', 'edit')->whereNumber('delivery')->name('edit');
             Route::put('{delivery}', 'update')->whereNumber('delivery')->name('update');
             Route::post('{delivery}/void', 'voidDelivery')->whereNumber('delivery')->name('void');
+        });
+
+    // Step 5.3: the documents of a delivery (DR, OR, IAR ...). DeliveryPolicy decides each action (delivery.upload-docs,
+    // documents.void for void/replace) and DeliveryDocumentRule the delivery status. A file is always the one of the
+    // delivery in the URL (404 otherwise). Same section gate as above.
+    Route::middleware('can:section.deliveries')
+        ->controller(DeliveryDocumentController::class)
+        ->prefix('deliveries/{delivery}')
+        ->where(['delivery' => '[0-9]+', 'document' => '[0-9]+'])
+        ->name('deliveries.documents.')
+        ->group(function () {
+            Route::post('documents', 'store')->name('store');
+            Route::post('documents/complete', 'complete')->name('complete');
+            Route::post('documents/reopen', 'reopen')->name('reopen');
+            Route::post('documents/{document}/void', 'void')->name('void');
+            Route::post('documents/{document}/replace', 'replace')->name('replace');
+            Route::get('documents/{document}/file', 'file')->name('file');
         });
 
     Route::inertia('property-documents', 'property-documents/index')

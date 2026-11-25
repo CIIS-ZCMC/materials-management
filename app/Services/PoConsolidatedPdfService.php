@@ -8,6 +8,7 @@ use App\Exceptions\ConsolidatedPdfFailed;
 use App\Models\PoDocument;
 use App\Models\PurchaseOrder;
 use App\Support\DisplayTime;
+use App\Support\PoDocumentOrder;
 use App\Support\Qpdf;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -19,7 +20,8 @@ use Throwable;
 /**
  * The ONE consolidated PDF of a PO (step 4.3, docs/PDF-MERGE.md).
  *
- * rebuild() joins the ACTIVE documents with qpdf in page order (sort_order: first = first pages).
+ * rebuild() joins the ACTIVE documents with qpdf in page order: the PO's own files by sort_order, then each
+ * delivery's files (App\Support\PoDocumentOrder, step 5.3). qpdf is called exactly as before.
  * The caller runs it after the change has been committed (upload, replace, void, remove, move),
  * so a failed merge never undoes the change itself.
  *
@@ -58,12 +60,18 @@ final class PoConsolidatedPdfService
                 $locked = PurchaseOrder::query()->whereKey($po->getKey())->lockForUpdate()->firstOrFail();
                 $old = $locked->consolidated_path;
 
-                $documents = PoDocument::query()
-                    ->where('purchase_order_id', $locked->getKey())
-                    ->where('status', PoDocumentStatus::Active->value)
-                    ->orderBy('sort_order')
-                    ->lockForUpdate()
-                    ->get();
+                // Step 5.3: the PO's own files first, then each delivery's files (PoDocumentOrder). Delivery files
+                // of a voided delivery, or (mode when_complete) of an unfinished one, are left out.
+                $documents = PoDocumentOrder::sort(
+                    PoDocument::query()
+                        ->where('purchase_order_id', $locked->getKey())
+                        ->where('status', PoDocumentStatus::Active->value)
+                        ->with('delivery:id,status')
+                        ->orderBy('sort_order')
+                        ->lockForUpdate()
+                        ->get()
+                        ->filter(fn (PoDocument $document) => PoDocumentOrder::included($document))
+                );
 
                 if ($documents->isEmpty()) {
                     $this->savePointer($locked, null, null);

@@ -37,7 +37,9 @@
 |                   only and never blocks Submit), stage (po = may be chosen in the upload
 |                   form; delivery and exception = not selectable there) and sort.
 |                   THIS LIST IS A SAMPLE until the MMS Office sends the real checklist
-|                   (steps 5.3 and 7.1 review it). Only "PO Bundle" is required for now.
+|                   (step 7.1 reviews it). Required: PO Bundle (PO stage) and DR, OR, IAR
+|                   (delivery stage, step 5.3: the completeness gate of a delivery).
+| documents.delivery_in_pdf  Step 5.3: "on_upload" (default) or "when_complete": when delivery files join the PO's PDF.
 |                   A new key needs a matching PoDocumentType case (no migration).
 | pdf.qpdf_path     MMS_QPDF_PATH in .env: the ABSOLUTE path of the qpdf program
 |                   (see docs/PDF-MERGE.md section 8). Used to check every
@@ -179,30 +181,50 @@ return [
     ],
 
     /*
-    | Step 4.2c: SAMPLE list of document types and checklist. Replace it (this one place)
+    | Document types and checklists (step 4.2c, extended in step 5.3). Replace this list (this one place)
     | when the MMS Office sends the real checklist. See the note at the top of this file.
-    | stage: po = in the upload dropdown; delivery / exception = not selectable there.
+    |
+    | stage     where the type may be chosen: "po" (PO upload form), "delivery" (the documents panel of a
+    |           delivery) or "exception" (not selectable yet). A type may list SEVERAL stages, for example
+    |           ['po', 'delivery'] for Supporting Document.
+    | required  true = counts in the checklist of every stage the type is listed in. For a PO the indicator is
+    |           information only; for a DELIVERY it is the completeness gate: the delivery cannot become
+    |           "Documents complete" until every required delivery type has an active file.
+    |           MMS has not defined the required supporting documents yet: today DR, OR and IAR only.
+    |           To require another type, set required => true on its line; to drop one, set false. No code change.
+    |
+    | delivery_in_pdf  When a delivery's files join the PO's combined PDF (step 5.3):
+    |           "on_upload"     (default) every active delivery file is in the PDF as soon as it is uploaded,
+    |                           unless its delivery is voided.
+    |           "when_complete" a delivery's files join the PDF only while the delivery is "Documents complete".
+    |           After changing it, press "Rebuild combined PDF" on each PO (or just wait for its next change).
+    | delivery_sort     Order of the types INSIDE one delivery in the combined PDF is the "sort" number below.
     */
     'documents' => [
         'checklist_is_sample' => true,
+
+        'delivery_in_pdf' => env('MMS_DELIVERY_IN_PDF', 'on_upload'),
 
         'types' => [
             ['key' => 'po_bundle', 'label' => 'PO Bundle', 'required' => true, 'stage' => 'po', 'sort' => 10],
             ['key' => 'supplier_document_checklist', 'label' => 'Supplier Document Checklist', 'required' => false, 'stage' => 'po', 'sort' => 20],
             ['key' => 'guarantee_letter', 'label' => 'Guarantee Letter', 'required' => false, 'stage' => 'po', 'sort' => 30],
-            ['key' => 'supporting_document', 'label' => 'Supporting Document', 'required' => false, 'stage' => 'po', 'sort' => 40],
+            ['key' => 'supporting_document', 'label' => 'Supporting Document', 'required' => false, 'stage' => ['po', 'delivery'], 'sort' => 40],
             ['key' => 'other', 'label' => 'Others', 'required' => false, 'stage' => 'po', 'sort' => 99],
 
-            // Delivery documents (Phase 5): listed so the filter shows their names; not selectable in this step.
+            // Delivery documents (step 5.3). DR, OR and IAR are required; the rest are optional.
             ['key' => 'notice_of_delivery', 'label' => 'Notice of Delivery', 'required' => false, 'stage' => 'delivery', 'sort' => 110],
-            ['key' => 'dr', 'label' => 'DR', 'required' => false, 'stage' => 'delivery', 'sort' => 120],
-            ['key' => 'iar', 'label' => 'IAR', 'required' => false, 'stage' => 'delivery', 'sort' => 130],
-            ['key' => 'or', 'label' => 'OR', 'required' => false, 'stage' => 'delivery', 'sort' => 140],
+            ['key' => 'dr', 'label' => 'DR', 'required' => true, 'stage' => 'delivery', 'sort' => 120],
+            ['key' => 'iar', 'label' => 'IAR', 'required' => true, 'stage' => 'delivery', 'sort' => 130],
+            ['key' => 'or', 'label' => 'OR', 'required' => true, 'stage' => 'delivery', 'sort' => 140],
 
-            // Flow A and Flow B documents.
+            // Advance Notice Letter: filed under Flow B in the flowchart; treated as an optional delivery
+            // document for now (MMS to confirm). Move it back to 'exception' here if MMS says so.
+            ['key' => 'advance_notice_letter', 'label' => 'Advance Notice Letter (OMCC)', 'required' => false, 'stage' => 'delivery', 'sort' => 150],
+
+            // Flow A documents.
             ['key' => 'notice_of_termination', 'label' => 'Notice of Termination', 'required' => false, 'stage' => 'exception', 'sort' => 210],
             ['key' => 'pull_out_form', 'label' => 'Pull-Out Form', 'required' => false, 'stage' => 'exception', 'sort' => 220],
-            ['key' => 'advance_notice_letter', 'label' => 'Advance Notice Letter (OMCC)', 'required' => false, 'stage' => 'exception', 'sort' => 230],
         ],
     ],
 
@@ -338,6 +360,7 @@ return [
             'status_changed' => 'Status changed',
             'po_printed' => 'PO printed',
             'extension_recorded' => 'Extension recorded',
+            'iar_window_exceeded' => 'IAR window exceeded',
             'document_uploaded' => 'Document uploaded',
             'document_removed' => 'Document removed',
             'documents_reordered' => 'Documents reordered',

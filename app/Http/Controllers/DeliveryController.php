@@ -7,7 +7,9 @@ use App\Http\Requests\VoidDeliveryRequest;
 use App\Models\Delivery;
 use App\Models\PurchaseOrder;
 use App\Policies\DeliveryPolicy;
+use App\Services\DeliveryDocumentService;
 use App\Services\DeliveryService;
+use App\Services\PoConsolidatedPdfService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,7 +23,11 @@ use Inertia\Response;
  */
 class DeliveryController extends Controller
 {
-    public function __construct(private readonly DeliveryService $service) {}
+    public function __construct(
+        private readonly DeliveryService $service,
+        private readonly DeliveryDocumentService $documents,
+        private readonly PoConsolidatedPdfService $pdf,
+    ) {}
 
     public function index(Request $request): Response
     {
@@ -107,6 +113,8 @@ class DeliveryController extends Controller
                 'edit_reason' => ! $update->allowed() && $canEncode ? $update->message() : null,
                 'void_reason' => ! $void->allowed() && $canEncode ? $void->message() : null,
             ],
+            // Step 5.3: the documents panel (checklist, files, and the buttons this person may use).
+            'documents' => $this->documents->panel($delivery, request()->user()),
         ]);
     }
 
@@ -140,9 +148,17 @@ class DeliveryController extends Controller
 
         $this->service->void($delivery, (string) $request->validated('reason'));
 
+        // Step 5.3: the delivery's files were voided with it, so they leave the PO's combined PDF.
+        $rebuilt = $this->pdf->rebuild(PurchaseOrder::query()->findOrFail($delivery->purchase_order_id));
+        $message = "Delivery voided. IAR number {$delivery->iar_number} stays recorded and cannot be used again.";
+
+        if (! $rebuilt->ok) {
+            $message .= ' The delivery was voided, but the PO\'s combined PDF could not be rebuilt ('.rtrim((string) $rebuilt->message, '.').'). Use "Rebuild combined PDF" on the PO to try again.';
+        }
+
         return redirect()
             ->to('/deliveries/'.$delivery->id)
-            ->with('success', "Delivery voided. IAR number {$delivery->iar_number} stays recorded and cannot be used again.");
+            ->with('success', $message);
     }
 
     /**

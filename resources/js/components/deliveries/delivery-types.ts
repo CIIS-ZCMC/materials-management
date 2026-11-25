@@ -59,3 +59,39 @@ export type PoDeliveriesData = {
     blocked_reason: string | null;
     rows: DeliveryRow[];
 };
+
+// Step 5.3: the documents panel of the delivery page. The server decides every can_* flag (DeliveryPolicy + DeliveryDocumentRule).
+export type DeliveryChecklistItem = { key: string; label: string; required: boolean; count: number };
+
+export type DeliveryDocumentRow = {
+    id: number;
+    type: string;
+    type_key: string;
+    original_name: string;
+    size_bytes: number;
+    status: string; // 'active' | 'void'
+    page_from: number | null; // the page in the PO's combined PDF (null = not in it, or not built yet)
+    page_to: number | null;
+    void_reason: string | null;
+    uploaded_by: string | null;
+    uploaded_at: string | null;
+};
+
+export type DeliveryDocumentsData = {
+    can_upload: boolean;
+    can_void: boolean;
+    can_replace: boolean;
+    can_complete: boolean;
+    can_reopen: boolean;
+    can_view: boolean;
+    can_view_combined: boolean;
+    locked_reason: string | null;
+    accept: string;
+    max_mb: string;
+    max_files: number;
+    max_total_mb: number;
+    types: { key: string; label: string }[];
+    checklist: { required_total: number; required_done: number; complete: boolean; missing: string[]; items: DeliveryChecklistItem[] };
+    pdf_mode: 'on_upload' | 'when_complete';
+    rows: DeliveryDocumentRow[];
+};

@@ -2,7 +2,8 @@ import { Head, Link } from '@inertiajs/react';
 import { ArrowLeft, Pencil } from 'lucide-react';
 import type { ReactNode } from 'react';
 import DeliveryStatusBadge from '@/components/deliveries/delivery-status-badge';
-import type { DeliveryDetail } from '@/components/deliveries/delivery-types';
+import DeliveryDocumentsPanel from '@/components/deliveries/delivery-documents-panel';
+import type { DeliveryDetail, DeliveryDocumentsData } from '@/components/deliveries/delivery-types';
 import VoidDeliveryDialog from '@/components/deliveries/void-delivery-dialog';
 import Heading from '@/components/heading';
 import { formatPhp, orDash } from '@/components/purchase-orders/po-format';
@@ -11,6 +12,7 @@ import { Button } from '@/components/ui/button';
 type Props = {
     delivery: DeliveryDetail;
     can: { edit: boolean; void: boolean; edit_reason: string | null; void_reason: string | null };
+    documents: DeliveryDocumentsData;
 };
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -22,7 +24,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
     );
 }
 
-export default function DeliveryShow({ delivery, can }: Props) {
+export default function DeliveryShow({ delivery, can, documents }: Props) {
     const voided = delivery.status.value === 'voided';
     const inspectors = delivery.signatories.filter((s) => s.role === 'inspector');
     const endUser = delivery.signatories.find((s) => s.role === 'end_user');
@@ -116,10 +118,7 @@ export default function DeliveryShow({ delivery, can }: Props) {
                     </dl>
                 </section>
 
-                <section className="space-y-1 rounded-md border border-dashed p-4">
-                    <h3 className="text-base font-medium">Documents</h3>
-                    <p className="text-sm text-muted-foreground">DR, OR, IAR and supporting documents are added here in step 5.3.</p>
-                </section>
+                <DeliveryDocumentsPanel deliveryId={delivery.id} poId={delivery.purchase_order.id} status={delivery.status.value} documents={documents} />
             </div>
         </>
     );

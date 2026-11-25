@@ -24,6 +24,11 @@ export type PoDocumentRow = {
     void_reason: string | null;
     uploaded_by: string | null;
     uploaded_at: string | null;
+    // Step 5.3: a file of a delivery (DR, OR, IAR ...). null = a file of the PO itself. Delivery files sit after the PO's
+    // own files, grouped by delivery, and are managed on the delivery page: the PO-level buttons do not apply to them.
+    delivery_id: number | null;
+    delivery_iar: string | null;
+    delivery_status: string | null;
 };
 
 // The combined PDF of the PO. "stale" = the documents changed but the last rebuild failed, so the viewer shows the previous version.
@@ -43,6 +48,7 @@ export type PoDocumentsData = {
     can_reorder: boolean;
     can_view: boolean; // the single original files (Admin, MMS Head, uploaders while the PO is open)
     can_view_consolidated: boolean;
+    can_view_delivery_files: boolean; // the single original files of a delivery (step 5.3)
     can_void: boolean;
     can_replace: boolean;
     can_rebuild: boolean;
@@ -134,7 +140,8 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
     }
 
     const previewRow = rows.find((row) => row.id === previewId) ?? null;
-    const activeIds = rows.filter((row) => row.status === 'active').map((row) => row.id);
+    // The arrows move the PO's own files only (a delivery file's place follows its delivery, step 5.3).
+    const activeIds = rows.filter((row) => row.status === 'active' && row.delivery_id === null).map((row) => row.id);
 
     // The type filter (step 4.2c). The count is the number of rows the list will show for that type.
     // A filter whose type has no rows any more (the last file was removed) falls back to "all".
@@ -238,6 +245,25 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
     function renderActions(d: PoDocumentRow) {
         const isActive = d.status === 'active';
         const confirmingRemove = confirm?.kind === 'remove' && confirm.id === d.id;
+
+        // Step 5.3: a delivery's file offers only "Go to page" and "View". Void, replace, order and remove are on the delivery page.
+        if (d.delivery_id !== null) {
+            return (
+                <div className="flex flex-wrap items-center gap-1">
+                    {canJump && isActive && d.page_from !== null && (
+                        <Button type="button" size="sm" variant="outline" onClick={() => goToPage(d.page_from)}>
+                            Go to page {d.page_from}
+                        </Button>
+                    )}
+
+                    {documents.can_view_delivery_files && (
+                        <Button type="button" size="sm" variant={previewId === d.id ? 'default' : 'outline'} onClick={() => setPreviewId(previewId === d.id ? null : d.id)}>
+                            <Eye className="size-4" /> {previewId === d.id ? 'Hide' : 'View'}
+                        </Button>
+                    )}
+                </div>
+            );
+        }
 
         return (
             <div className="flex flex-wrap items-center gap-1">
@@ -484,7 +510,7 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
                 ) : (
                     <ol className="space-y-2">
                         {shownRows.map((d) => {
-                            const isOpen = documents.can_view && previewId === d.id;
+                            const isOpen = (d.delivery_id === null ? documents.can_view : documents.can_view_delivery_files) && previewId === d.id;
                             const isCorrecting = correction?.id === d.id;
                             const pages = pagesLabel(d);
 
@@ -500,6 +526,9 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
                                             <p className="text-xs text-muted-foreground">
                                                 {d.type} · {formatSize(d.size_bytes)} · {orDash(d.uploaded_by)} · {orDash(d.uploaded_at)}
                                             </p>
+                                            {d.delivery_id !== null && (
+                                                <p className="text-xs text-muted-foreground">Delivery IAR {orDash(d.delivery_iar)}{d.delivery_status === 'voided' ? ' (voided)' : ''}</p>
+                                            )}
                                             {d.void_reason && <p className="mt-0.5 text-xs text-muted-foreground">Void: {d.void_reason}</p>}
                                         </div>
                                         {d.status === 'void' ? <Badge variant="outline">Void</Badge> : <Badge variant="secondary">Active</Badge>}

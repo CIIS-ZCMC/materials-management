@@ -5,13 +5,16 @@ namespace App\Services;
 use App\Enums\PoDocumentStatus;
 use App\Enums\PoDocumentType;
 use App\Enums\PurchaseOrderStatus;
+use App\Models\Delivery;
 use App\Models\PoDocument;
 use App\Models\PurchaseOrder;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\DeliveryDocumentRule;
 use App\Support\DisplayTime;
 use App\Support\ImagePdf;
 use App\Support\PoDocumentChecklist;
+use App\Support\PoDocumentOrder;
 use App\Support\PoDocumentRule;
 use App\Support\Qpdf;
 use App\Support\StatusTransition;
@@ -55,6 +58,13 @@ use Throwable;
  *            PoDocumentRule::REORDER (Procurement: draft and escalated; MMS staff: uploaded, step 4.2d).
  * fileResponse(): streams one stored PDF inline through an authorized route.
  *
+ * Step 5.3: the same service also stores the files of a DELIVERY (DR, OR, IAR ...). A delivery file is a
+ * po_documents row with a delivery_id. uploadMany() takes an optional Delivery; voidDeliveryDocument(),
+ * replaceForDelivery() and voidAllOfDelivery() are the delivery versions of void/replace. Everything that
+ * is PO-level (rowsFor PO checklist, move, void, remove, submit, hasActive) ignores delivery files, and
+ * everything delivery-level ignores PO files. Delivery events go to the "delivery" log with the delivery as
+ * subject. Moving a delivery file is not possible: the PDF order inside a delivery comes from the type list.
+ *
  * A JPG or PNG becomes a one-page PDF at upload. stored_path is always the PDF
  * that step 4.3 merges; original_path keeps the uploaded image.
  * Errors that belong to a button use the error key "form"; the file box uses "file".
@@ -86,12 +96,15 @@ final class PoDocumentService
      * the one place that writes.
      *
      * @param  list<array{type: string, files: list<UploadedFile>}>  $groups
+     * @param  Delivery|null  $delivery  null = the PO's own files (PO types only); a delivery = its files (delivery types only)
      * @return list<PoDocument> the new documents in page order
      *
      * @throws ValidationException groups.i.type, groups.i.files.j (one message per bad file) or "form" (the status rule)
      */
-    public function uploadMany(PurchaseOrder $po, array $groups, User $actor): array
+    public function uploadMany(PurchaseOrder $po, array $groups, User $actor, ?Delivery $delivery = null): array
     {
+        abort_if($delivery !== null && $delivery->purchase_order_id !== $po->getKey(), 404);
+
         $errors = [];
         $prepared = [];
         $seen = [];
@@ -99,7 +112,11 @@ final class PoDocumentService
         foreach (array_values($groups) as $i => $group) {
             $type = PoDocumentType::tryFrom((string) ($group['type'] ?? ''));
 
-            if ($type === null || ! PoDocumentChecklist::isSelectable($type->value)) {
+            $accepted = $type !== null && ($delivery === null
+                ? PoDocumentChecklist::isSelectable($type->value)
+                : PoDocumentChecklist::isDeliveryType($type->value));
+
+            if ($type === null || ! $accepted) {
                 $errors["groups.{$i}.type"] = 'This document type cannot be added here. Choose a type from the list.';
 
                 continue;
@@ -143,10 +160,15 @@ final class PoDocumentService
         $written = [];
 
         try {
-            return DB::transaction(function () use ($po, $prepared, $actor, $disk, $directory, $batch, &$written): array {
+            return DB::transaction(function () use ($po, $delivery, $prepared, $actor, $disk, $directory, $batch, &$written): array {
+                // Lock order everywhere: the PO row first, then the delivery row.
                 $locked = $this->lock($po);
+                $lockedDelivery = $delivery === null ? null : $this->lockDelivery($locked, $delivery);
 
-                $this->assertAllowed(PoDocumentRule::addBlockReason($locked), 'form');
+                $this->assertAllowed(
+                    $lockedDelivery === null ? PoDocumentRule::addBlockReason($locked) : DeliveryDocumentRule::addBlockReason($lockedDelivery),
+                    'form',
+                );
 
                 $order = (int) PoDocument::query()->where('purchase_order_id', $locked->getKey())->max('sort_order') + 1;
                 $created = [];
@@ -154,17 +176,19 @@ final class PoDocumentService
                 foreach ($prepared as $item) {
                     /** @var PoDocumentType $type */
                     $type = $item['type'];
-                    $document = $this->persist($locked, $item['file'], $type, $actor, $item['kind'], $item['pdf'], $disk, $directory, (string) Str::uuid(), $order, null, $written);
+                    $document = $this->persist($locked, $item['file'], $type, $actor, $item['kind'], $item['pdf'], $disk, $directory, (string) Str::uuid(), $order, $lockedDelivery?->getKey(), $written);
                     $originalName = $document->original_name;
 
                     Audit::log(
                         event: 'document_uploaded',
-                        subject: $locked,
-                        description: "Uploaded {$type->label()} ({$originalName}) to PO {$locked->po_number}",
+                        subject: $lockedDelivery ?? $locked,
+                        description: $lockedDelivery === null
+                            ? "Uploaded {$type->label()} ({$originalName}) to PO {$locked->po_number}"
+                            : "Uploaded {$type->label()} ({$originalName}) to delivery {$lockedDelivery->iar_number} of PO {$locked->po_number}",
                         new: ['documents' => "{$type->label()}: {$originalName}"],
-                        extra: ['document_id' => $document->getKey(), 'sort_order' => $order, 'batch' => $batch, 'files_in_request' => count($prepared)],
+                        extra: ['document_id' => $document->getKey(), 'sort_order' => $order, 'batch' => $batch, 'files_in_request' => count($prepared), 'purchase_order_id' => $locked->getKey()],
                         causer: $actor,
-                        log: 'po',
+                        log: $lockedDelivery === null ? 'po' : 'delivery',
                     );
 
                     $created[] = $document;
@@ -197,6 +221,7 @@ final class PoDocumentService
 
             $count = PoDocument::query()
                 ->where('purchase_order_id', $locked->getKey())
+                ->whereNull('delivery_id')
                 ->where('status', PoDocumentStatus::Active->value)
                 ->count();
 
@@ -233,6 +258,7 @@ final class PoDocumentService
             $target = PoDocument::query()
                 ->whereKey($document->getKey())
                 ->where('purchase_order_id', $locked->getKey())
+                ->whereNull('delivery_id')
                 ->lockForUpdate()
                 ->firstOrFail();
 
@@ -289,6 +315,7 @@ final class PoDocumentService
 
             $active = PoDocument::query()
                 ->where('purchase_order_id', $locked->getKey())
+                ->whereNull('delivery_id')
                 ->where('status', PoDocumentStatus::Active->value)
                 ->orderBy('sort_order')
                 ->lockForUpdate()
@@ -353,6 +380,7 @@ final class PoDocumentService
 
             $active = PoDocument::query()
                 ->where('purchase_order_id', $locked->getKey())
+                ->whereNull('delivery_id')
                 ->where('status', PoDocumentStatus::Active->value)
                 ->count();
 
@@ -389,6 +417,25 @@ final class PoDocumentService
      */
     public function replace(PurchaseOrder $po, PoDocument $document, UploadedFile $file, string $reason, User $actor): PoDocument
     {
+        return $this->replaceCore($po, null, $document, $file, $reason, $actor);
+    }
+
+    /**
+     * Step 5.3: replaces a wrong file of a DELIVERY (same type, same place in the delivery). Allowed while the
+     * delivery is for_uploading or complete; a replacement never changes the delivery status, because the type
+     * (and so the completeness) stays the same.
+     *
+     * @throws ValidationException error key "file" (the new file) or "form" (the rule)
+     */
+    public function replaceForDelivery(Delivery $delivery, PoDocument $document, UploadedFile $file, string $reason, User $actor): PoDocument
+    {
+        $po = PurchaseOrder::query()->findOrFail($delivery->purchase_order_id);
+
+        return $this->replaceCore($po, $delivery, $document, $file, $reason, $actor);
+    }
+
+    private function replaceCore(PurchaseOrder $po, ?Delivery $delivery, PoDocument $document, UploadedFile $file, string $reason, User $actor): PoDocument
+    {
         $kind = $this->inspect($file);
         $pdfBytes = $kind === 'pdf' ? null : $this->imageToPdf($file, $kind);
 
@@ -398,12 +445,16 @@ final class PoDocumentService
         $written = [];
 
         try {
-            return DB::transaction(function () use ($po, $document, $file, $reason, $actor, $kind, $pdfBytes, $disk, $directory, $name, &$written): PoDocument {
+            return DB::transaction(function () use ($po, $delivery, $document, $file, $reason, $actor, $kind, $pdfBytes, $disk, $directory, $name, &$written): PoDocument {
                 $locked = $this->lock($po);
+                $lockedDelivery = $delivery === null ? null : $this->lockDelivery($locked, $delivery);
 
-                $this->assertAllowed(PoDocumentRule::replaceBlockReason($locked), 'form');
+                $this->assertAllowed(
+                    $lockedDelivery === null ? PoDocumentRule::replaceBlockReason($locked) : DeliveryDocumentRule::replaceBlockReason($lockedDelivery),
+                    'form',
+                );
 
-                $old = $this->lockActiveDocument($locked, $document);
+                $old = $this->lockActiveDocument($locked, $document, $lockedDelivery);
 
                 // Make room right after the old document. Highest number first: the unique key on
                 // (purchase_order_id, sort_order) never sees two rows with the same number.
@@ -427,14 +478,16 @@ final class PoDocumentService
 
                 Audit::log(
                     event: 'document_replaced',
-                    subject: $locked,
-                    description: "Replaced {$oldSummary} with {$new->original_name} in PO {$locked->po_number}",
+                    subject: $lockedDelivery ?? $locked,
+                    description: $lockedDelivery === null
+                        ? "Replaced {$oldSummary} with {$new->original_name} in PO {$locked->po_number}"
+                        : "Replaced {$oldSummary} with {$new->original_name} in delivery {$lockedDelivery->iar_number} of PO {$locked->po_number}",
                     old: ['documents' => $oldSummary],
                     new: ['documents' => $newSummary],
                     reason: $reason,
-                    extra: ['old_document_id' => $old->getKey(), 'document_id' => $new->getKey(), 'sort_order' => $new->sort_order],
+                    extra: ['old_document_id' => $old->getKey(), 'document_id' => $new->getKey(), 'sort_order' => $new->sort_order, 'purchase_order_id' => $locked->getKey()],
                     causer: $actor,
-                    log: 'po',
+                    log: $lockedDelivery === null ? 'po' : 'delivery',
                 );
 
                 return $new;
@@ -448,11 +501,82 @@ final class PoDocumentService
         }
     }
 
+    /**
+     * Step 5.3: voids ONE file of a delivery with a reason (the row and files stay; its pages leave the combined
+     * PDF). Allowed while the delivery is for_uploading or complete. This method does NOT change the delivery
+     * status: DeliveryDocumentService::void() wraps it and reopens a complete delivery when a required type is
+     * left without a file.
+     *
+     * @throws ValidationException error key "form"
+     */
+    public function voidDeliveryDocument(Delivery $delivery, PoDocument $document, string $reason, User $actor): void
+    {
+        DB::transaction(function () use ($delivery, $document, $reason, $actor): void {
+            $locked = $this->lock(PurchaseOrder::query()->findOrFail($delivery->purchase_order_id));
+            $lockedDelivery = $this->lockDelivery($locked, $delivery);
+
+            $this->assertAllowed(DeliveryDocumentRule::voidBlockReason($lockedDelivery), 'form');
+
+            $target = $this->lockActiveDocument($locked, $document, $lockedDelivery);
+            $reason = trim($reason);
+            $summary = "{$target->type->label()}: {$target->original_name}";
+
+            $this->markVoid($target, $reason, $actor);
+
+            Audit::log(
+                event: 'document_voided',
+                subject: $lockedDelivery,
+                description: "Voided {$summary} in delivery {$lockedDelivery->iar_number} of PO {$locked->po_number}",
+                old: ['documents' => $summary],
+                reason: $reason,
+                extra: ['document_id' => $target->getKey(), 'sort_order' => $target->sort_order, 'purchase_order_id' => $locked->getKey()],
+                causer: $actor,
+                log: 'delivery',
+            );
+        });
+    }
+
+    /**
+     * Step 5.3 (decision for a voided delivery): every ACTIVE file of the delivery is marked void with the
+     * delivery's reason. The files stay on record; they leave the combined PDF. Called by DeliveryService::void()
+     * INSIDE its transaction (PO and delivery rows already locked). One audit entry per delivery, not per file.
+     *
+     * @return int how many files were voided
+     */
+    public function voidAllOfDelivery(Delivery $delivery, string $reason, User $actor): int
+    {
+        $documents = PoDocument::query()
+            ->where('delivery_id', $delivery->getKey())
+            ->where('status', PoDocumentStatus::Active->value)
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($documents as $document) {
+            $this->markVoid($document, $reason, $actor);
+        }
+
+        if ($documents->isNotEmpty()) {
+            Audit::log(
+                event: 'document_voided',
+                subject: $delivery,
+                description: "Voided {$documents->count()} file(s) of delivery {$delivery->iar_number} because the delivery was voided",
+                old: ['documents' => $documents->map(fn (PoDocument $d) => "{$d->type->label()}: {$d->original_name}")->implode('; ')],
+                reason: $reason,
+                extra: ['document_ids' => $documents->pluck('id')->all(), 'purchase_order_id' => $delivery->purchase_order_id],
+                causer: $actor,
+                log: 'delivery',
+            );
+        }
+
+        return $documents->count();
+    }
+
     /** True when the PO has at least one active document (drives the Submit button). */
     public function hasActive(PurchaseOrder $po): bool
     {
         return PoDocument::query()
             ->where('purchase_order_id', $po->getKey())
+            ->whereNull('delivery_id')
             ->where('status', PoDocumentStatus::Active->value)
             ->exists();
     }
@@ -478,9 +602,12 @@ final class PoDocumentService
 
     /**
      * Rows for the Documents tab, in page order: the page index. The page numbers come from OUR records
-     * (the scans have no text layer): each active document's page_count, added up in order, which is
-     * the same order PoConsolidatedPdfService merges them. A voided document has no pages.
-     * If one active document has no page_count yet (a PO from before step 4.3 until its first rebuild),
+     * (the scans have no text layer): each document that is IN the combined PDF contributes its page_count,
+     * added up in the order PoDocumentOrder gives (the same order PoConsolidatedPdfService merges them).
+     * A voided document has no pages. Step 5.3: the PO's own files come first, then each delivery's files; a
+     * delivery row carries delivery_id, delivery_iar and delivery_status, and a file that is active but not (yet)
+     * in the PDF (delivery_in_pdf = when_complete) shows no pages.
+     * If one included document has no page_count yet (a PO from before step 4.3 until its first rebuild),
      * it and the ones after it show no page numbers.
      *
      * Step 4.2c: every row also carries type_key (the stored string), used by the type filter.
@@ -492,17 +619,18 @@ final class PoDocumentService
     {
         $next = 1;
 
-        return PoDocument::query()
-            ->where('purchase_order_id', $po->getKey())
-            ->with('uploader:id,name')
-            ->orderBy('sort_order')
-            ->get()
+        return PoDocumentOrder::sort(
+            PoDocument::query()
+                ->where('purchase_order_id', $po->getKey())
+                ->with(['uploader:id,name', 'delivery:id,status,iar_number'])
+                ->get()
+        )
             ->map(function (PoDocument $document) use (&$next) {
                 $active = $document->status === PoDocumentStatus::Active;
                 $from = null;
                 $to = null;
 
-                if ($active && $next !== null) {
+                if ($active && $next !== null && PoDocumentOrder::included($document)) {
                     if ($document->page_count === null || $document->page_count < 1) {
                         $next = null;
                     } else {
@@ -525,6 +653,9 @@ final class PoDocumentService
                     'void_reason' => $active ? null : $document->void_reason,
                     'uploaded_by' => $document->uploader?->name,
                     'uploaded_at' => $document->created_at ? DisplayTime::format($document->created_at) : null,
+                    'delivery_id' => $document->delivery_id,
+                    'delivery_iar' => $document->delivery?->iar_number,
+                    'delivery_status' => $document->delivery?->status->value,
                 ];
             })
             ->when(! $includeVoid, fn ($rows) => $rows->filter(fn (array $row) => $row['status'] === PoDocumentStatus::Active->value))
@@ -586,13 +717,19 @@ final class PoDocumentService
      *
      * @throws ValidationException error key "form"
      */
-    private function lockActiveDocument(PurchaseOrder $locked, PoDocument $document): PoDocument
+    private function lockActiveDocument(PurchaseOrder $locked, PoDocument $document, ?Delivery $delivery = null): PoDocument
     {
-        $target = PoDocument::query()
+        // A PO-level action never reaches a delivery file, and a delivery-level action never reaches another
+        // delivery's or a PO file: the wrong one is simply "not found".
+        $query = PoDocument::query()
             ->whereKey($document->getKey())
-            ->where('purchase_order_id', $locked->getKey())
-            ->lockForUpdate()
-            ->firstOrFail();
+            ->where('purchase_order_id', $locked->getKey());
+
+        $delivery === null
+            ? $query->whereNull('delivery_id')
+            : $query->where('delivery_id', $delivery->getKey());
+
+        $target = $query->lockForUpdate()->firstOrFail();
 
         if ($target->status !== PoDocumentStatus::Active) {
             throw ValidationException::withMessages(['form' => 'That document is already void.']);
@@ -609,6 +746,23 @@ final class PoDocumentService
         $document->voided_by = $actor->getKey();
         $document->voided_at = now();
         $document->save();
+    }
+
+    /**
+     * The delivery row, locked (the PO row must already be locked: PO first, then delivery). It must belong to
+     * this PO, otherwise "not found". The PO is attached so DeliveryDocumentRule can read it.
+     */
+    private function lockDelivery(PurchaseOrder $locked, Delivery $delivery): Delivery
+    {
+        $row = Delivery::query()
+            ->whereKey($delivery->getKey())
+            ->where('purchase_order_id', $locked->getKey())
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $row->setRelation('purchaseOrder', $locked);
+
+        return $row;
     }
 
     /** The PO row, locked for the rest of the transaction. */

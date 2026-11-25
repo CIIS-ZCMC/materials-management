@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Contracts\DeliveryRepositoryInterface;
 use App\Contracts\PersonnelDirectory;
 use App\Data\PersonData;
+use App\Events\DeliveryIarWindowExceeded;
 use App\Enums\DeliverySignatoryRole;
 use App\Enums\DeliveryStatus;
 use App\Enums\IarNumberStatus;
@@ -30,6 +31,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use LogicException;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * Delivery batches (step 5.2, CONTEXT.md decision 47). One delivery = one IAR. Header only.
@@ -39,6 +41,9 @@ use LogicException;
  *              Any failure (a duplicate or voided IAR number, a person not in the directory) rolls back everything.
  *   update()   invoice, fund cluster, amount, date received and signatories. The IAR number and series are locked.
  *   void()     reason required. Status through StatusTransition, the IAR number voided with the same reason.
+ *              Step 5.3: the delivery's files are voided with the same reason and leave the combined PDF
+ *              (the controller rebuilds it afterwards).
+ *   noteIarWindowExceeded()  step 5.3: ONE audit event per delivery when the IAR window has passed.
  *
  * Errors that belong to a field use that field's key; a rule that blocks the whole action uses "form".
  * The audit log is "delivery". Permissions are checked by DeliveryPolicy, not here.
@@ -49,6 +54,7 @@ class DeliveryService
         private readonly DeliveryRepositoryInterface $deliveries,
         private readonly IarNumberService $iar,
         private readonly PersonnelDirectory $people,
+        private readonly PoDocumentService $documents,
     ) {}
 
     // ---- reading ---------------------------------------------------------------------------------
@@ -114,6 +120,9 @@ class DeliveryService
         $delivery->loadMissing(['purchaseOrder.supplier', 'signatories']);
 
         $deadline = $this->iarDeadline($delivery);
+
+        // Step 5.3: written once per delivery, the first time it is loaded after the window passed (log only).
+        $this->noteIarWindowExceeded($delivery);
 
         return [
             'id' => $delivery->id,
@@ -375,6 +384,11 @@ class DeliveryService
                 'voided_at' => now(),
             ])->save();
 
+            // Step 5.3: the files stay on record, marked void with the same reason; they leave the combined PDF.
+            if (Auth::user() !== null) {
+                $this->documents->voidAllOfDelivery($row, $reason, Auth::user());
+            }
+
             $number = IarNumber::query()->where('delivery_id', $row->id)->first()
                 ?? IarNumber::query()->where('number', $row->iar_number)->first()
                 ?? throw new LogicException("Delivery {$row->id} has no IAR number record ({$row->iar_number}).");
@@ -388,6 +402,57 @@ class DeliveryService
 
             return $row;
         });
+    }
+
+    /**
+     * Step 5.3: the IAR window (date received + iar.processing_days) has passed and the delivery still waits for its
+     * documents. Writes ONE audit entry "iar_window_exceeded" (log "delivery") and fires DeliveryIarWindowExceeded.
+     * LOG ONLY: the consequence is not defined by MMS, and no email is sent. It runs when a delivery is loaded
+     * (row(), so every list and page) or changed (the document actions), never on a schedule. The audit table
+     * itself is the "already written" memory, so no migration is needed; the delivery row is locked while checking
+     * so two requests at the same moment still write one entry.
+     */
+    public function noteIarWindowExceeded(Delivery $delivery): void
+    {
+        if ($delivery->status !== DeliveryStatus::ForUploading) {
+            return;
+        }
+
+        $deadline = $this->iarDeadline($delivery);
+
+        if ($deadline === null || $deadline >= $this->today() || $this->windowLogged($delivery)) {
+            return;
+        }
+
+        DB::transaction(function () use ($delivery, $deadline): void {
+            $row = Delivery::query()->whereKey($delivery->getKey())->lockForUpdate()->first();
+
+            if ($row === null || $row->status !== DeliveryStatus::ForUploading || $this->windowLogged($row)) {
+                return;
+            }
+
+            Audit::log(
+                event: 'iar_window_exceeded',
+                subject: $row,
+                description: "IAR window exceeded for delivery {$row->iar_number}: the documents were due by {$deadline}",
+                extra: ['deadline' => $deadline, 'date_received' => $row->date_received->toDateString(), 'purchase_order_id' => $row->purchase_order_id],
+                log: 'delivery',
+            );
+
+            DB::afterCommit(fn () => DeliveryIarWindowExceeded::dispatch($row, $deadline));
+        });
+    }
+
+    private function windowLogged(Delivery $delivery): bool
+    {
+        $model = config('activitylog.activity_model', Activity::class);
+
+        return $model::query()
+            ->where('log_name', 'delivery')
+            ->where('event', 'iar_window_exceeded')
+            ->where('subject_type', $delivery->getMorphClass())
+            ->where('subject_id', $delivery->getKey())
+            ->exists();
     }
 
     // ---- internals -------------------------------------------------------------------------------

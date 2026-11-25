@@ -6,6 +6,7 @@ use App\Enums\PurchaseOrderStatus;
 use App\Http\Requests\ReplacePoDocumentRequest;
 use App\Http\Requests\UploadPoDocumentRequest;
 use App\Http\Requests\VoidPoDocumentRequest;
+use App\Models\Delivery;
 use App\Models\PoDocument;
 use App\Models\PurchaseOrder;
 use App\Services\PoConsolidatedPdfService;
@@ -149,16 +150,28 @@ class PoDocumentController extends Controller
     /** The View ("Original") button: streams one stored PDF inline. No public URL; this route is the only way in. */
     public function file(PurchaseOrder $purchaseOrder, PoDocument $document): StreamedResponse
     {
-        $this->ensureBelongs($purchaseOrder, $document);
-        Gate::authorize('viewDocument', $purchaseOrder);
+        $this->ensureBelongs($purchaseOrder, $document, allowDelivery: true);
+
+        // Step 5.3: a delivery's file is opened by the people who handle deliveries (or Admin / MMS Head), judged by
+        // DeliveryPolicy; the PO Bundle keeps PurchaseOrderPolicy::viewDocument unchanged.
+        if ($document->delivery_id !== null) {
+            Gate::authorize('viewDocument', Delivery::query()->findOrFail($document->delivery_id));
+        } else {
+            Gate::authorize('viewDocument', $purchaseOrder);
+        }
 
         return $this->documents->fileResponse($document);
     }
 
-    /** A document of another PO is "not found", whatever the person's permissions. */
-    private function ensureBelongs(PurchaseOrder $purchaseOrder, PoDocument $document): void
+    /**
+     * A document of another PO is "not found", whatever the person's permissions. Step 5.3: so is a file of a
+     * DELIVERY for every PO-level action (void, replace, move, remove); those files have their own routes and rules.
+     * Only the View route passes allowDelivery.
+     */
+    private function ensureBelongs(PurchaseOrder $purchaseOrder, PoDocument $document, bool $allowDelivery = false): void
     {
         abort_unless($document->purchase_order_id === $purchaseOrder->id, 404);
+        abort_if(! $allowDelivery && $document->delivery_id !== null, 404);
     }
 
     /**

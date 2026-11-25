@@ -329,7 +329,7 @@ class PurchaseOrderController extends Controller
      * the PO is open); everyone with po.view sees the combined PDF (can_view_consolidated).
      * Voided rows are sent only to people who handle or audit the files.
      *
-     * @return array{can_upload: bool, can_submit: bool, can_remove: bool, can_reorder: bool, can_view: bool, can_view_consolidated: bool, can_void: bool, can_replace: bool, can_rebuild: bool, locked_reason: string|null, accept: string, max_mb: string, max_files: int, max_total_mb: int, types: list<array{key: string, label: string}>, checklist: array<string, mixed>, consolidated: array<string, mixed>, rows: list<array<string, mixed>>}
+     * @return array{can_upload: bool, can_submit: bool, can_remove: bool, can_reorder: bool, can_view: bool, can_view_consolidated: bool, can_view_delivery_files: bool, can_void: bool, can_replace: bool, can_rebuild: bool, locked_reason: string|null, accept: string, max_mb: string, max_files: int, max_total_mb: int, types: list<array{key: string, label: string}>, checklist: array<string, mixed>, consolidated: array<string, mixed>, rows: list<array<string, mixed>>}
      */
     private function documentsInfo(PurchaseOrder $po): array
     {
@@ -342,6 +342,8 @@ class PurchaseOrderController extends Controller
             'can_reorder' => $user?->can('reorderDocuments', $po) ?? false,
             'can_view' => $user?->can('viewDocument', $po) ?? false,
             'can_view_consolidated' => $user?->can('viewConsolidated', $po) ?? false,
+            // Step 5.3: opening one ORIGINAL file of a delivery (Admin and MMS Head, and the people who handle deliveries).
+            'can_view_delivery_files' => $user?->canAny(['documents.view-originals', 'delivery.upload-docs', 'delivery.encode']) ?? false,
             'can_void' => $user?->can('voidDocument', $po) ?? false,
             'can_replace' => $user?->can('replaceDocument', $po) ?? false,
             'can_rebuild' => $user?->can('rebuildConsolidated', $po) ?? false,
@@ -354,7 +356,7 @@ class PurchaseOrderController extends Controller
             'types' => PoDocumentChecklist::selectable(),
             'checklist' => PoDocumentChecklist::progress($po),
             'consolidated' => $this->consolidated->info($po),
-            'rows' => $this->documents->rowsFor($po, includeVoid: $user?->canAny(['po.upload-files', 'documents.void', 'documents.view-originals']) ?? false),
+            'rows' => $this->documents->rowsFor($po, includeVoid: $user?->canAny(['po.upload-files', 'documents.void', 'documents.view-originals', 'delivery.upload-docs']) ?? false),
         ];
     }
 

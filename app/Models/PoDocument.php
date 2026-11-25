@@ -29,6 +29,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read PurchaseOrder $purchaseOrder
+ * @property-read Delivery|null $delivery
  * @property-read User $uploader
  *
  * Not mass-assignable on purpose: status, void_reason, voided_by, voided_at (only
@@ -78,6 +79,16 @@ class PoDocument extends Model
     public function purchaseOrder(): BelongsTo
     {
         return $this->belongsTo(PurchaseOrder::class);
+    }
+
+    /**
+     * The delivery this file belongs to (step 5.3); null for a file of the PO itself.
+     *
+     * @return BelongsTo<Delivery, $this>
+     */
+    public function delivery(): BelongsTo
+    {
+        return $this->belongsTo(Delivery::class);
     }
 
     /**

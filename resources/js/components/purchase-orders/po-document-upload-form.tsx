@@ -4,14 +4,16 @@ import { useRef, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 
-// A document type the upload form offers (stage "po" of the list in config/mms.php).
+// A document type the upload form offers (stage "po", or "delivery" on the delivery page, of the list in config/mms.php).
 export type UploadType = { key: string; label: string };
 
 // One row of the form: one type and all the files chosen for it. "id" only keeps React's rows apart.
 type Row = { id: number; type: string; files: File[] };
 
 type Props = {
-    poId: number;
+    // Where the files are posted. Default: the PO's documents route. The delivery page passes its own (step 5.3).
+    poId?: number;
+    postUrl?: string;
     types: UploadType[];
     accept: string;
     maxMb: string;
@@ -36,7 +38,7 @@ function fileKey(file: File): string {
     return `${file.name}|${file.size}|${file.lastModified}`;
 }
 
-export default function PoDocumentUploadForm({ poId, types, accept, maxMb, maxFiles, maxTotalMb, isDraft, lockedType = null, onDone, onCancel }: Props) {
+export default function PoDocumentUploadForm({ poId, postUrl, types, accept, maxMb, maxFiles, maxTotalMb, isDraft, lockedType = null, onDone, onCancel }: Props) {
     // React state, all of it only for this form:
     // - "rows" are the type rows with their files (nothing is sent until Upload);
     // - "errors" are the server's messages, keyed like the request: groups.0.type, groups.0.files.1, groups, form;
@@ -109,7 +111,7 @@ export default function PoDocumentUploadForm({ poId, types, accept, maxMb, maxFi
 
         // forceFormData: files cannot travel as JSON, so Inertia sends a normal form upload (groups[0][type], groups[0][files][0], ...).
         router.post(
-            `/purchase-orders/${poId}/documents`,
+            postUrl ?? `/purchase-orders/${poId}/documents`,
             { groups: rows.map((row) => ({ type: row.type, files: row.files })) },
             {
                 forceFormData: true,
