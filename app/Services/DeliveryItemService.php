@@ -27,7 +27,9 @@ use Illuminate\Validation\ValidationException;
  * inside one delivery. The PO Reviewer's delivery update.
  *
  *   record()             several lines in ONE save, all or nothing. One transaction: lock the PO row, then the delivery
- *                        row, re-check DeliveryItemRule, check every line (same PO, date, over-delivery), insert, audit.
+ *                        row, re-check DeliveryItemRule, check every line (same PO, no active quantity for the line on this
+ *                        IAR yet, over-delivery), insert, audit. Step 6.1b: ONE DELIVERY = ONE IAR = ONE QUANTITY PER PO LINE;
+ *                        the row's date is the delivery's date received.
  *   void()               ONE row, with a reason (StatusTransition, log "delivery"). A row is never edited.
  *   voidAllOfDelivery()  called by DeliveryService::void(): the rows stay on record, marked void with the delivery's
  *                        reason (ONE audit entry, like the delivery's files in step 5.3).
@@ -45,7 +47,10 @@ class DeliveryItemService
     /**
      * What the "update delivered items" form needs: every line of the PO with its running totals.
      *
-     * @return array{today: string, min_date: string|null, progress: array{value: string, label: string}, lines: list<array<string, mixed>>}
+     * Step 6.1b: no date per line (the date is the delivery's date received), and a line that already has an active
+     * quantity on this IAR says so (entered_here), so the form shows it as taken.
+     *
+     * @return array{date_received: string, progress: array{value: string, label: string}, lines: list<array<string, mixed>>}
      */
     public function sheet(Delivery $delivery): array
     {
@@ -53,10 +58,9 @@ class DeliveryItemService
         $po = $delivery->purchaseOrder;
 
         return [
-            'today' => $this->today(),
-            'min_date' => $po->po_date?->toDateString(),
+            'date_received' => $delivery->date_received->toDateString(),
             'progress' => $this->progress($po->id),
-            'lines' => $this->lines($po, withRows: false),
+            'lines' => $this->lines($po, only: $delivery, withRows: false),
         ];
     }
 
@@ -73,25 +77,35 @@ class DeliveryItemService
         $update = Gate::inspect('updateItems', $delivery);
         $handles = (bool) $user?->can(DeliveryPolicy::UPDATE_ITEMS);
 
+        // Step 6.1b: more of an item arrives with a NEW delivery and a new IAR. The link is for people who record deliveries
+        // (delivery.encode) and only while the PO still accepts one (the same check as the PO page button); the Encoder is told
+        // why when it does not, everybody else is told to ask the Encoder.
+        $record = Gate::inspect('create', [Delivery::class, $delivery->purchaseOrder]);
+        $encodes = (bool) $user?->can(DeliveryPolicy::ENCODE);
+
         return [
             'can_update' => $update->allowed(),
             // Only people who could act are told why they cannot.
             'locked_reason' => $handles && ! $update->allowed() ? $update->message() : null,
+            'can_record_another' => $record->allowed(),
+            'record_blocked_reason' => $encodes && ! $record->allowed() ? $record->message() : null,
             'progress' => $this->progress($delivery->purchase_order_id),
             'lines' => $this->lines($delivery->purchaseOrder, only: $delivery),
         ];
     }
 
     /**
-     * For the PO page (Deliveries tab): the derived progress and every line with its history across all deliveries.
+     * For the PO page (Deliveries tab): the derived progress, every line with its totals, and (step 6.1b) the history
+     * grouped by delivery, one IAR each, with the running total of each line after each row.
      *
-     * @return array{progress: array{value: string, label: string}, lines: list<array<string, mixed>>}
+     * @return array{progress: array{value: string, label: string}, lines: list<array<string, mixed>>, groups: list<array<string, mixed>>}
      */
     public function poSummary(PurchaseOrder $po): array
     {
         return [
             'progress' => $this->progress($po->id),
-            'lines' => $this->lines($po),
+            'lines' => $this->lines($po, withRows: false),
+            'groups' => $this->groups($po),
         ];
     }
 
@@ -107,8 +121,12 @@ class DeliveryItemService
 
     /**
      * Every line of the PO: ordered, delivered, undelivered, over by (computed now), and its history rows.
+     * With $only (the delivery page and the form) it also says what the line has on THIS delivery: entered_here (the sum
+     * of its ACTIVE quantities, null when none) and active_here (how many active rows; more than 1 only for rows saved
+     * before step 6.1b, which still count).
      *
      * @param  Delivery|null  $only  show only the rows of this delivery (the totals still count every delivery)
+     * @param  bool  $withRows  false leaves "rows" empty (the form and the PO tab do not use them)
      * @return list<array<string, mixed>>
      */
     private function lines(PurchaseOrder $po, ?Delivery $only = null, bool $withRows = true): array
@@ -118,7 +136,8 @@ class DeliveryItemService
 
         $rows = collect();
 
-        if ($withRows) {
+        // The rows of this delivery are also needed for entered_here, even when the caller does not show them.
+        if ($withRows || $only !== null) {
             $rows = ($only !== null ? $this->items->forDelivery($only->id) : $this->items->forPurchaseOrder($po->id))
                 ->groupBy('po_item_id');
         }
@@ -126,8 +145,10 @@ class DeliveryItemService
         /** @var array<int, bool> $voidable delivery id => whether this person may void rows of it */
         $voidable = [];
 
-        return $poItems->map(function (PoItem $line) use ($delivered, $rows, &$voidable): array {
+        return $poItems->map(function (PoItem $line) use ($delivered, $rows, $only, $withRows, &$voidable): array {
             $figures = DeliveryTotals::figures($line->quantity_ordered, $delivered[$line->id] ?? 0);
+            $lineRows = collect($rows->get($line->id, []));
+            $active = $lineRows->filter(fn (DeliveryItem $row) => $row->status === DeliveryItemStatus::Active);
 
             return [
                 'po_item_id' => $line->id,
@@ -137,11 +158,73 @@ class DeliveryItemService
                 'delivered' => Quantity::format($figures['delivered']),
                 'undelivered' => Quantity::format($figures['undelivered']),
                 'over_by' => $figures['over_by'] > 0 ? Quantity::format($figures['over_by']) : null,
-                'rows' => collect($rows->get($line->id, []))
-                    ->map(function (DeliveryItem $row) use (&$voidable): array {
-                        $voidable[$row->delivery_id] ??= Gate::allows('voidItem', $row->delivery);
+                'entered_here' => $only !== null && $active->isNotEmpty()
+                    ? Quantity::format((int) $active->sum(fn (DeliveryItem $row) => Quantity::thousandths($row->quantity)))
+                    : null,
+                'active_here' => $only !== null ? $active->count() : 0,
+                'rows' => $withRows
+                    ? $lineRows
+                        ->map(function (DeliveryItem $row) use (&$voidable): array {
+                            $voidable[$row->delivery_id] ??= Gate::allows('voidItem', $row->delivery);
 
-                        return $this->rowData($row, $voidable[$row->delivery_id]);
+                            return $this->rowData($row, $voidable[$row->delivery_id]);
+                        })
+                        ->values()
+                        ->all()
+                    : [],
+            ];
+        })->values()->all();
+    }
+
+    /**
+     * The PO tab history (step 6.1b): one group per delivery (one IAR each), in the order of the date received, with the
+     * status of the delivery and, for each row, the running total of its PO line AFTER that row. Display only: the real
+     * totals come from DeliveryTotals. A voided row, and every row of a voided delivery, shows no running total (it does
+     * not count). A delivery without items yet is listed with no rows.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function groups(PurchaseOrder $po): array
+    {
+        $poItems = PoItem::query()->with('unit:id,name')->where('purchase_order_id', $po->id)->get()->keyBy('id');
+
+        $deliveries = Delivery::query()
+            ->where('purchase_order_id', $po->id)
+            ->orderBy('date_received')
+            ->orderBy('id')
+            ->get(['id', 'iar_number', 'status', 'date_received']);
+
+        $rows = $this->items->forPurchaseOrder($po->id)->groupBy('delivery_id');
+
+        /** @var array<int, int> $running thousandths per PO line, carried from one delivery to the next */
+        $running = [];
+
+        return $deliveries->map(function (Delivery $delivery) use ($poItems, $rows, &$running): array {
+            $counts = $delivery->status !== DeliveryStatus::Voided;
+
+            return [
+                'delivery_id' => $delivery->id,
+                'iar_number' => $delivery->iar_number,
+                'status' => ['value' => $delivery->status->value, 'label' => $delivery->status->label()],
+                'date_received' => $delivery->date_received->toDateString(),
+                'rows' => collect($rows->get($delivery->id, []))
+                    ->map(function (DeliveryItem $row) use ($poItems, $counts, &$running): array {
+                        $line = $poItems->get($row->po_item_id);
+                        $running[$row->po_item_id] ??= 0;
+                        $total = null;
+
+                        if ($counts && $row->status === DeliveryItemStatus::Active) {
+                            $running[$row->po_item_id] += Quantity::thousandths($row->quantity);
+                            $total = Quantity::format($running[$row->po_item_id]);
+                        }
+
+                        // No Void button on the PO tab: a row is voided on its own delivery page.
+                        return [
+                            ...$this->rowData($row, false),
+                            'description' => $line?->description,
+                            'unit' => $line?->unit?->name,
+                            'running_total' => $total,
+                        ];
                     })
                     ->values()
                     ->all(),
@@ -177,9 +260,11 @@ class DeliveryItemService
     // ---- writing ---------------------------------------------------------------------------------
 
     /**
-     * Records several PO lines in one save: each with its own date and the quantity delivered. All or nothing.
+     * Records several PO lines in one save: the quantity delivered for each. All or nothing. One quantity per PO line per
+     * delivery (step 6.1b): a line that already has an ACTIVE row in this delivery is refused. The row's date is the
+     * delivery's date received (its own checks, step 5.2: not in the future, not before the PO date, same year as the IAR number).
      *
-     * @param  list<array<string, mixed>>  $lines  po_item_id, quantity, delivered_on, over_delivery, over_delivery_reason
+     * @param  list<array<string, mixed>>  $lines  po_item_id, quantity, over_delivery, over_delivery_reason
      * @return list<DeliveryItem>
      *
      * @throws ValidationException
@@ -207,6 +292,10 @@ class DeliveryItemService
             // Read under the PO lock, so two people cannot both pass the over-delivery check at the same moment.
             $before = DeliveryTotals::deliveredByLine($ids);
 
+            // One quantity per PO line per delivery (step 6.1b), read under the same locks. A voided row does not count.
+            $activeIds = DeliveryItemRule::activeLineIds($row);
+            $date = $row->date_received->toDateString();
+
             $errors = [];
             $seen = [];
             $plans = [];
@@ -221,6 +310,12 @@ class DeliveryItemService
                     continue;
                 }
 
+                if ($message = DeliveryItemRule::lineAlreadyEnteredReason($id, $activeIds)) {
+                    $errors["lines.{$index}.po_item_id"] = $message;
+
+                    continue;
+                }
+
                 if (isset($seen[$id])) {
                     $errors["lines.{$index}.po_item_id"] = 'This line is entered twice. Enter it once per save.';
 
@@ -228,10 +323,6 @@ class DeliveryItemService
                 }
 
                 $seen[$id] = true;
-
-                if ($message = $this->dateProblem($po, $line['delivered_on'])) {
-                    $errors["lines.{$index}.delivered_on"] = $message;
-                }
 
                 $orderedK = $poItem->quantity_ordered * Quantity::SCALE;
                 $afterK = ($before[$id] ?? 0) + $line['quantity'];
@@ -265,7 +356,7 @@ class DeliveryItemService
                     'delivery_id' => $row->id,
                     'po_item_id' => $poItem->id,
                     'quantity' => Quantity::decimal($line['quantity']),
-                    'delivered_on' => $line['delivered_on'],
+                    'delivered_on' => $date,
                     'over_delivery' => $plan['over'],
                     // An over-delivery tick on a line that does not go over is ignored: no flag, no reason.
                     'over_delivery_reason' => $plan['over'] ? $line['reason'] : null,
@@ -275,7 +366,7 @@ class DeliveryItemService
                 $saved[] = $item;
 
                 $text = $poItem->description.': '.Quantity::format($line['quantity']).($plan['unit'] ? " {$plan['unit']}" : '')
-                    .' on '.$line['delivered_on'].' (total '.Quantity::format($plan['after']).' of '.Quantity::format($plan['ordered']).')';
+                    .' on '.$date.' (total '.Quantity::format($plan['after']).' of '.Quantity::format($plan['ordered']).')';
 
                 $texts[] = $text;
 
@@ -412,7 +503,7 @@ class DeliveryItemService
      * safe if it is ever called from somewhere else). Quantities become whole thousandths.
      *
      * @param  list<array<string, mixed>>  $lines
-     * @return list<array{po_item_id: int, quantity: int, delivered_on: string, over_delivery: bool, reason: string}>
+     * @return list<array{po_item_id: int, quantity: int, over_delivery: bool, reason: string}>
      *
      * @throws ValidationException
      */
@@ -441,15 +532,9 @@ class DeliveryItemService
                 $errors["lines.{$index}.quantity"] = 'Enter the quantity delivered, more than zero, with up to 3 decimals (for example 2.5).';
             }
 
-            $date = $text('delivered_on');
-            if (! $this->isDate($date)) {
-                $errors["lines.{$index}.delivered_on"] = 'Enter the delivery date as YYYY-MM-DD.';
-            }
-
             $clean[] = [
                 'po_item_id' => (int) $id,
                 'quantity' => Quantity::thousandths($quantity),
-                'delivered_on' => $date,
                 'over_delivery' => filter_var($line['over_delivery'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'reason' => $text('over_delivery_reason'),
             ];
@@ -462,22 +547,6 @@ class DeliveryItemService
         return $clean;
     }
 
-    /** The delivery date may not be in the future (Manila date) or before the PO date. */
-    private function dateProblem(PurchaseOrder $po, string $date): ?string
-    {
-        if ($date > $this->today()) {
-            return 'The delivery date cannot be in the future.';
-        }
-
-        $poDate = $po->po_date?->toDateString();
-
-        if ($poDate !== null && $date < $poDate) {
-            return "The delivery date cannot be before the PO date ({$poDate}).";
-        }
-
-        return null;
-    }
-
     /** @throws ValidationException */
     private function cleanReason(string $reason): string
     {
@@ -488,15 +557,5 @@ class DeliveryItemService
         }
 
         return $reason;
-    }
-
-    private function isDate(string $value): bool
-    {
-        return (bool) preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m) && checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
-    }
-
-    private function today(): string
-    {
-        return now()->setTimezone((string) config('mms.display_timezone', 'Asia/Manila'))->toDateString();
     }
 }

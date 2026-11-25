@@ -7,12 +7,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 
-// Step 6.1: the PO Reviewer's delivery update. Tick the PO lines that arrived, type the quantity delivered today and its
-// date for each, and save them all at once (one save, all or nothing). The numbers on the right of each line are worked out
+// Step 6.1: the PO Reviewer's delivery update. Tick the PO lines that arrived on this IAR, type the quantity delivered for each,
+// and save them all at once (one save, all or nothing). The numbers on the right of each line are worked out
 // in your browser while you type, so you can see the running total before saving; the server works them out again on save.
 //
 // React state (useState) in this page:
-//   entries  what is typed for every line: ticked or not, quantity, date, over-delivery tick and its reason
+//   entries  what is typed for every line: ticked or not, quantity, over-delivery tick and its reason
 //   picked   the ids of the lines sent in the last save (the server reports errors by position, "lines.0.quantity")
 //   errors   the server's messages, busy: a request is running
 type Props = {
@@ -20,7 +20,11 @@ type Props = {
     sheet: ItemSheet;
 };
 
-type Entry = { selected: boolean; quantity: string; date: string; over: boolean; reason: string };
+type Entry = { selected: boolean; quantity: string; over: boolean; reason: string };
+
+// Step 6.1b: one delivery = one IAR = one quantity per PO line. A line that already has a quantity on this IAR cannot be ticked.
+// The server refuses it too, with the same sentence.
+const TAKEN_MESSAGE = 'This line already has a quantity on this IAR. Void it and enter it again, or record a new delivery with a new IAR.';
 
 const INPUT = 'w-full rounded-md border bg-background px-3 py-2 text-sm tabular-nums';
 
@@ -50,7 +54,7 @@ export default function DeliveryItemsCreate({ delivery, sheet }: Props) {
         const initial: Record<number, Entry> = {};
 
         sheet.lines.forEach((line) => {
-            initial[line.po_item_id] = { selected: false, quantity: '', date: sheet.today, over: false, reason: '' };
+            initial[line.po_item_id] = { selected: false, quantity: '', over: false, reason: '' };
         });
 
         return initial;
@@ -59,7 +63,7 @@ export default function DeliveryItemsCreate({ delivery, sheet }: Props) {
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [busy, setBusy] = useState(false);
 
-    const chosen = sheet.lines.filter((line) => entries[line.po_item_id].selected);
+    const chosen = sheet.lines.filter((line) => entries[line.po_item_id].selected && line.entered_here === null);
 
     function change(id: number, patch: Partial<Entry>) {
         setEntries((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
@@ -89,7 +93,7 @@ export default function DeliveryItemsCreate({ delivery, sheet }: Props) {
             const entry = entries[line.po_item_id];
             const f = figures(line.po_item_id, line.ordered, line.delivered);
 
-            return f.now !== null && entry.date !== '' && (!f.over || (entry.over && entry.reason.trim().length >= 5));
+            return f.now !== null && (!f.over || (entry.over && entry.reason.trim().length >= 5));
         });
 
     function save() {
@@ -107,7 +111,6 @@ export default function DeliveryItemsCreate({ delivery, sheet }: Props) {
                     return {
                         po_item_id: line.po_item_id,
                         quantity: entry.quantity.trim(),
-                        delivered_on: entry.date,
                         over_delivery: f.over && entry.over,
                         over_delivery_reason: f.over && entry.over ? entry.reason.trim() : '',
                     };
@@ -145,9 +148,18 @@ export default function DeliveryItemsCreate({ delivery, sheet }: Props) {
                 </div>
 
                 <p className="text-sm text-muted-foreground">
-                    Tick each PO line that arrived, then type the quantity delivered today and its date. Quantities may have up to 3 decimals (for example 2.5). A quantity above what was ordered
+                    Tick each PO line that arrived on this IAR and type the quantity delivered. Quantities may have up to 3 decimals (for example 2.5). A quantity above what was ordered
                     needs the over-delivery tick and a reason. If one line cannot be saved, none of them is.
                 </p>
+
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                    <p>
+                        Delivery date: <span className="font-medium tabular-nums">{sheet.date_received}</span> (the date received on IAR {delivery.iar_number}).
+                    </p>
+                    <p className="mt-1 text-muted-foreground">
+                        One IAR = one delivery = one quantity per PO line. If more of a line arrives later with a new IAR, record a new delivery from the PO page.
+                    </p>
+                </div>
 
                 {(errors.form || errors.lines) && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">{errors.form ?? errors.lines}</p>}
 
@@ -158,15 +170,17 @@ export default function DeliveryItemsCreate({ delivery, sheet }: Props) {
                         const entry = entries[line.po_item_id];
                         const f = figures(line.po_item_id, line.ordered, line.delivered);
                         const checkboxId = `item-line-${line.po_item_id}`;
+                        const taken = line.entered_here !== null;
 
                         return (
-                            <div key={line.po_item_id} className={`space-y-3 rounded-md border p-3 ${entry.selected ? 'border-primary/50' : ''}`}>
+                            <div key={line.po_item_id} className={`space-y-3 rounded-md border p-3 ${taken ? 'bg-muted/40' : entry.selected ? 'border-primary/50' : ''}`}>
                                 <div className="flex items-start gap-3">
                                     <input
                                         id={checkboxId}
                                         type="checkbox"
                                         className="mt-1 size-4"
-                                        checked={entry.selected}
+                                        checked={entry.selected && !taken}
+                                        disabled={taken}
                                         onChange={(e) => change(line.po_item_id, { selected: e.target.checked })}
                                     />
                                     <label htmlFor={checkboxId} className="min-w-0 cursor-pointer">
@@ -174,6 +188,13 @@ export default function DeliveryItemsCreate({ delivery, sheet }: Props) {
                                         {line.unit && <span className="block text-xs text-muted-foreground">Unit: {line.unit}</span>}
                                     </label>
                                 </div>
+
+                                {taken && (
+                                    <p className="text-sm">
+                                        <span className="font-medium">Already entered on this IAR: {line.entered_here}.</span>{' '}
+                                        <span className="text-muted-foreground">{TAKEN_MESSAGE}</span>
+                                    </p>
+                                )}
 
                                 <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-5">
                                     <div>
@@ -186,23 +207,23 @@ export default function DeliveryItemsCreate({ delivery, sheet }: Props) {
                                     </div>
                                     <div>
                                         <dt className="text-xs text-muted-foreground">Delivered now</dt>
-                                        <dd className="font-medium tabular-nums">{entry.selected && f.now !== null ? show(f.now) : '—'}</dd>
+                                        <dd className="font-medium tabular-nums">{entry.selected && !taken && f.now !== null ? show(f.now) : '—'}</dd>
                                     </div>
                                     <div>
                                         <dt className="text-xs text-muted-foreground">Running total delivered</dt>
-                                        <dd className="font-medium tabular-nums">{entry.selected && f.now !== null ? show(f.after) : line.delivered}</dd>
+                                        <dd className="font-medium tabular-nums">{entry.selected && !taken && f.now !== null ? show(f.after) : line.delivered}</dd>
                                     </div>
                                     <div>
                                         <dt className="text-xs text-muted-foreground">Total undelivered</dt>
-                                        <dd className="font-medium tabular-nums">{entry.selected && f.now !== null ? show(f.undelivered) : line.undelivered}</dd>
+                                        <dd className="font-medium tabular-nums">{entry.selected && !taken && f.now !== null ? show(f.undelivered) : line.undelivered}</dd>
                                     </div>
                                 </dl>
 
-                                {entry.selected && (
+                                {entry.selected && !taken && (
                                     <div className="space-y-3">
-                                        <div className="grid gap-3 sm:grid-cols-2">
+                                        <div className="grid gap-3 sm:max-w-sm">
                                             <div className="space-y-1.5">
-                                                <Label htmlFor={`${checkboxId}-quantity`}>Quantity delivered today</Label>
+                                                <Label htmlFor={`${checkboxId}-quantity`}>Quantity delivered on this IAR</Label>
                                                 <input
                                                     id={`${checkboxId}-quantity`}
                                                     type="text"
@@ -216,19 +237,6 @@ export default function DeliveryItemsCreate({ delivery, sheet }: Props) {
                                                 {!lineError(line.po_item_id, 'quantity') && entry.quantity.trim() !== '' && f.now === null && (
                                                     <p className="text-sm text-destructive">Use digits with up to 3 decimals, more than zero.</p>
                                                 )}
-                                            </div>
-                                            <div className="space-y-1.5">
-                                                <Label htmlFor={`${checkboxId}-date`}>Delivery date</Label>
-                                                <input
-                                                    id={`${checkboxId}-date`}
-                                                    type="date"
-                                                    className={INPUT}
-                                                    value={entry.date}
-                                                    min={sheet.min_date ?? undefined}
-                                                    max={sheet.today}
-                                                    onChange={(e) => change(line.po_item_id, { date: e.target.value })}
-                                                />
-                                                {lineError(line.po_item_id, 'delivered_on') && <p className="text-sm text-destructive">{lineError(line.po_item_id, 'delivered_on')}</p>}
                                             </div>
                                         </div>
 

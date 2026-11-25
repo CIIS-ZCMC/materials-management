@@ -122,7 +122,7 @@ export default function DeliveryShow({ delivery, can, documents, items }: Props)
 
                 {/* Step 6.1: delivered quantity per PO line and date (the PO Reviewer's update), with running totals and history.
                     Shown before the documents so the totals are the first thing a Reviewer sees. */}
-                <DeliveryItemsPanel deliveryId={delivery.id} items={items} />
+                <DeliveryItemsPanel deliveryId={delivery.id} poId={delivery.purchase_order.id} iarNumber={delivery.iar_number} items={items} />
 
                 <DeliveryDocumentsPanel deliveryId={delivery.id} poId={delivery.purchase_order.id} status={delivery.status.value} documents={documents} />
             </div>

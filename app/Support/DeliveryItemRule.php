@@ -18,10 +18,18 @@ use App\Models\DeliveryItem;
  * void an item row         no            yes         no
  * Items already entered STAY COUNTED while the delivery is reopened (for_uploading); only adding and voiding wait
  * until it is "Documents complete" again. Totals ignore only voided rows and voided deliveries.
+ *
+ * Step 6.1b, ONE DELIVERY = ONE IAR = ONE QUANTITY PER PO LINE: a delivery holds at most one ACTIVE row for each PO line
+ * (lineAlreadyEnteredReason). More of the same line arrives with a NEW delivery and a new IAR. A voided row does not count,
+ * so a corrected line can be entered again. There is no unique index in the database (voided rows share the line). Rows
+ * that were saved before this rule (two active rows for one line in one delivery) are left alone and still count in every
+ * total; the rule only blocks NEW saves.
  * A closed PO, or a PO that no longer accepts deliveries (DeliveryRule::PO_STATUSES), accepts none of these.
  */
 final class DeliveryItemRule
 {
+    public const LINE_ALREADY_ENTERED = 'This line already has a quantity on this IAR. Void it and enter it again, or record a new delivery with a new IAR.';
+
     public static function addBlockReason(Delivery $delivery): ?string
     {
         return self::commonBlockReason($delivery);
@@ -38,6 +46,34 @@ final class DeliveryItemRule
         }
 
         return null;
+    }
+
+    /**
+     * The PO lines that already have an ACTIVE row in this delivery. Read by the Service under the PO and delivery row
+     * locks, and by the form (so a taken line is shown as taken).
+     *
+     * @return list<int>
+     */
+    public static function activeLineIds(Delivery $delivery): array
+    {
+        return DeliveryItem::query()
+            ->where('delivery_id', $delivery->getKey())
+            ->where('status', DeliveryItemStatus::Active->value)
+            ->pluck('po_item_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * One quantity per PO line per delivery (step 6.1b).
+     *
+     * @param  list<int>  $activeLineIds  from activeLineIds()
+     */
+    public static function lineAlreadyEnteredReason(int $poItemId, array $activeLineIds): ?string
+    {
+        return in_array($poItemId, $activeLineIds, true) ? self::LINE_ALREADY_ENTERED : null;
     }
 
     private static function commonBlockReason(Delivery $delivery): ?string

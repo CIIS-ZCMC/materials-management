@@ -33,6 +33,9 @@ use Spatie\Permission\PermissionRegistrar;
 | A rule that blocks an action (delivery not complete, closed PO, voided delivery, row already void) is refused by the
 | Policy FIRST with a 403 and the reason; the Service checks the same rule again under the row locks (tested by calling it directly).
 | First run: 24 of 29 passed; the 5 failures were wrong expectations ("form" error instead of 403), fixed here.
+| Step 6.1b (one delivery = one IAR = one quantity per PO line, the row date is the delivery's date received): the cases that
+| saved two rows for one line in one delivery now use one delivery per batch; the per-row date cases were removed (the date
+| rules are tested in DeliveryTest). The new rules are tested in DeliveryItemIarTest (helpers "ditem2_").
 */
 
 beforeEach(function () {
@@ -112,9 +115,10 @@ function ditem_delivery(PurchaseOrder $po, bool $complete = true): Delivery
     return $delivery->fresh();
 }
 
-function ditem_line(PoItem $line, string|int $quantity, ?string $date = null, array $extra = []): array
+/** Step 6.1b: no date per line; the row takes the delivery's date received. */
+function ditem_line(PoItem $line, string|int $quantity, array $extra = []): array
 {
-    return ['po_item_id' => $line->id, 'quantity' => (string) $quantity, 'delivered_on' => $date ?? ditem_today(), ...$extra];
+    return ['po_item_id' => $line->id, 'quantity' => (string) $quantity, ...$extra];
 }
 
 /** @param  list<array<string, mixed>>  $lines */
@@ -136,27 +140,29 @@ function ditem_rows(Delivery $delivery): int
 
 // ---- totals ----------------------------------------------------------------------------------------
 
-it('shows the right totals and progress after each save of 500, 300 and 200 pieces of 1,000', function () {
+it('shows the right totals and progress after each delivery of 500, 300 and 200 pieces of 1,000', function () {
     [$po, [$line]] = ditem_po([1000]);
-    $delivery = ditem_delivery($po);
     $reviewer = ditem_reviewer();
 
     expect(DeliveryTotals::progress($po->id))->toBe(DeliveryProgress::NotDelivered);
 
-    ditem_post($reviewer, $delivery, [ditem_line($line, 500)])->assertSessionHasNoErrors();
+    // One IAR = one delivery = one quantity per PO line (step 6.1b): each batch is its own delivery.
+    $first = ditem_delivery($po);
+    ditem_post($reviewer, $first, [ditem_line($line, 500)])->assertSessionHasNoErrors();
     expect(ditem_totals($po, $line))->toMatchArray(['ordered' => '1000', 'delivered' => '500', 'undelivered' => '500', 'over_by' => null])
         ->and(DeliveryTotals::progress($po->id))->toBe(DeliveryProgress::Partial);
 
-    ditem_post($reviewer, $delivery, [ditem_line($line, 300)])->assertSessionHasNoErrors();
+    $second = ditem_delivery($po);
+    ditem_post($reviewer, $second, [ditem_line($line, 300)])->assertSessionHasNoErrors();
     expect(ditem_totals($po, $line))->toMatchArray(['delivered' => '800', 'undelivered' => '200'])
         ->and(DeliveryTotals::progress($po->id))->toBe(DeliveryProgress::Partial);
 
-    ditem_post($reviewer, $delivery, [ditem_line($line, 200)])->assertSessionHasNoErrors();
+    $third = ditem_delivery($po);
+    ditem_post($reviewer, $third, [ditem_line($line, 200)])->assertSessionHasNoErrors();
     expect(ditem_totals($po, $line))->toMatchArray(['delivered' => '1000', 'undelivered' => '0', 'over_by' => null])
         ->and(DeliveryTotals::progress($po->id))->toBe(DeliveryProgress::Full)
-        ->and(ditem_rows($delivery))->toBe(3);
+        ->and(DeliveryItem::query()->count())->toBe(3);
 });
-
 it('counts every delivery of the PO in the running total of a line', function () {
     [$po, [$line]] = ditem_po([1000]);
     $first = ditem_delivery($po);
@@ -171,20 +177,18 @@ it('counts every delivery of the PO in the running total of a line', function ()
 
 it('accepts fractional quantities and adds them without drift', function () {
     [$po, [$kg, $liter]] = ditem_po([5, 1]);
-    $delivery = ditem_delivery($po);
+    $first = ditem_delivery($po);
+    $second = ditem_delivery($po);
     $reviewer = ditem_reviewer();
 
-    ditem_post($reviewer, $delivery, [ditem_line($kg, '2.5')])->assertSessionHasNoErrors();
-    expect(ditem_totals($po, $kg))->toMatchArray(['delivered' => '2.5', 'undelivered' => '2.5']);
+    ditem_post($reviewer, $first, [ditem_line($kg, '2.5'), ditem_line($liter, '0.1')])->assertSessionHasNoErrors();
+    expect(ditem_totals($po, $kg))->toMatchArray(['delivered' => '2.5', 'undelivered' => '2.5'])
+        ->and(ditem_totals($po, $liter))->toMatchArray(['delivered' => '0.1', 'undelivered' => '0.9']);
 
-    ditem_post($reviewer, $delivery, [ditem_line($kg, '2.5')])->assertSessionHasNoErrors();
-    expect(ditem_totals($po, $kg))->toMatchArray(['delivered' => '5', 'undelivered' => '0']);
-
-    ditem_post($reviewer, $delivery, [ditem_line($liter, '0.1')])->assertSessionHasNoErrors();
-    ditem_post($reviewer, $delivery, [ditem_line($liter, '0.2')])->assertSessionHasNoErrors();
-    expect(ditem_totals($po, $liter))->toMatchArray(['delivered' => '0.3', 'undelivered' => '0.7']);
+    ditem_post($reviewer, $second, [ditem_line($kg, '2.5'), ditem_line($liter, '0.2')])->assertSessionHasNoErrors();
+    expect(ditem_totals($po, $kg))->toMatchArray(['delivered' => '5', 'undelivered' => '0'])
+        ->and(ditem_totals($po, $liter))->toMatchArray(['delivered' => '0.3', 'undelivered' => '0.7']);
 });
-
 it('refuses a quantity that is zero, negative, has too many decimals or is not a number', function () {
     [$po, [$line]] = ditem_po([10]);
     $delivery = ditem_delivery($po);
@@ -197,47 +201,27 @@ it('refuses a quantity that is zero, negative, has too many decimals or is not a
     expect(ditem_rows($delivery))->toBe(0);
 });
 
-it('refuses a delivery date in the future or before the PO date', function () {
-    [$po, [$line]] = ditem_po([10]);
-    $delivery = ditem_delivery($po);
-    $reviewer = ditem_reviewer();
-
-    ditem_post($reviewer, $delivery, [ditem_line($line, 1, now()->addDays(3)->toDateString())])->assertSessionHasErrors('lines.0.delivered_on');
-    ditem_post($reviewer, $delivery, [ditem_line($line, 1, '2026-01-04')])->assertSessionHasErrors('lines.0.delivered_on');
-
-    expect(ditem_rows($delivery))->toBe(0);
-});
-
-it('keeps each line on its own date in one save', function () {
-    [$po, [$a, $b]] = ditem_po([100, 50]);
-    $delivery = ditem_delivery($po);
-
-    ditem_post(ditem_reviewer(), $delivery, [ditem_line($a, 40, '2026-11-02'), ditem_line($b, 50, '2026-11-05')])->assertSessionHasNoErrors();
-
-    expect(DeliveryItem::query()->where('po_item_id', $a->id)->first()->delivered_on->toDateString())->toBe('2026-11-02')
-        ->and(DeliveryItem::query()->where('po_item_id', $b->id)->first()->delivered_on->toDateString())->toBe('2026-11-05');
-});
-
 // ---- over-delivery ---------------------------------------------------------------------------------
 
 it('refuses an over-delivery without the flag and the reason, and accepts it with both', function () {
     [$po, [$line]] = ditem_po([10]);
-    $delivery = ditem_delivery($po);
+    $first = ditem_delivery($po);
+    $second = ditem_delivery($po);
     $reviewer = ditem_reviewer();
 
-    ditem_post($reviewer, $delivery, [ditem_line($line, 4)])->assertSessionHasNoErrors();
+    ditem_post($reviewer, $first, [ditem_line($line, 4)])->assertSessionHasNoErrors();
 
-    // 4 + 7 = 11 of 10: no flag
-    ditem_post($reviewer, $delivery, [ditem_line($line, 7)])->assertSessionHasErrors('lines.0.quantity');
+    // second IAR: 4 + 7 = 11 of 10, no flag
+    ditem_post($reviewer, $second, [ditem_line($line, 7)])->assertSessionHasErrors('lines.0.quantity');
     // flag but no reason, and a too short reason
-    ditem_post($reviewer, $delivery, [ditem_line($line, 7, null, ['over_delivery' => true])])->assertSessionHasErrors('lines.0.over_delivery_reason');
-    ditem_post($reviewer, $delivery, [ditem_line($line, 7, null, ['over_delivery' => true, 'over_delivery_reason' => 'abc'])])->assertSessionHasErrors('lines.0.over_delivery_reason');
+    ditem_post($reviewer, $second, [ditem_line($line, 7, ['over_delivery' => true])])->assertSessionHasErrors('lines.0.over_delivery_reason');
+    ditem_post($reviewer, $second, [ditem_line($line, 7, ['over_delivery' => true, 'over_delivery_reason' => 'abc'])])->assertSessionHasErrors('lines.0.over_delivery_reason');
 
-    expect(ditem_rows($delivery))->toBe(1);
+    expect(ditem_rows($second))->toBe(0);
 
-    ditem_post($reviewer, $delivery, [ditem_line($line, 7, null, ['over_delivery' => true, 'over_delivery_reason' => 'Supplier added a free extra box'])])->assertSessionHasNoErrors();
+    ditem_post($reviewer, $second, [ditem_line($line, 7, ['over_delivery' => true, 'over_delivery_reason' => 'Supplier added a free extra box'])])->assertSessionHasNoErrors();
 
-    $row = DeliveryItem::query()->where('delivery_id', $delivery->id)->latest('id')->first();
+    $row = DeliveryItem::query()->where('delivery_id', $second->id)->latest('id')->first();
 
     expect($row->over_delivery)->toBeTrue()
         ->and($row->over_delivery_reason)->toBe('Supplier added a free extra box')
@@ -247,12 +231,11 @@ it('refuses an over-delivery without the flag and the reason, and accepts it wit
 
     expect($entry->properties['over_delivery'][0])->toContain('Supplier added a free extra box');
 });
-
 it('ignores an over-delivery tick on a line that does not go over', function () {
     [$po, [$line]] = ditem_po([10]);
     $delivery = ditem_delivery($po);
 
-    ditem_post(ditem_reviewer(), $delivery, [ditem_line($line, 5, null, ['over_delivery' => true, 'over_delivery_reason' => 'Not needed here'])])->assertSessionHasNoErrors();
+    ditem_post(ditem_reviewer(), $delivery, [ditem_line($line, 5, ['over_delivery' => true, 'over_delivery_reason' => 'Not needed here'])])->assertSessionHasNoErrors();
 
     $row = DeliveryItem::query()->where('delivery_id', $delivery->id)->first();
 
@@ -312,29 +295,31 @@ it('refuses items for a delivery that is not "Documents complete"', function () 
 });
 
 it('keeps items counted when the delivery is reopened, but accepts no new item and no void until it is complete again', function () {
-    [$po, [$line]] = ditem_po([100]);
+    [$po, [$a, $b]] = ditem_po([100, 50]);
     $delivery = ditem_delivery($po);
     $reviewer = ditem_reviewer();
 
-    ditem_post($reviewer, $delivery, [ditem_line($line, 60)])->assertSessionHasNoErrors();
+    ditem_post($reviewer, $delivery, [ditem_line($a, 60)])->assertSessionHasNoErrors();
     $row = DeliveryItem::query()->where('delivery_id', $delivery->id)->firstOrFail();
 
     // reopened (the same state the 5.3 auto-reopen leaves)
     $delivery->forceFill(['status' => DeliveryStatus::ForUploading])->save();
 
-    expect(ditem_totals($po, $line)['delivered'])->toBe('60');
+    expect(ditem_totals($po, $a)['delivered'])->toBe('60');
 
-    ditem_post($reviewer, $delivery, [ditem_line($line, 10)])->assertForbidden();
+    ditem_post($reviewer, $delivery, [ditem_line($b, 10)])->assertForbidden();
     $this->actingAs($reviewer)->post("/deliveries/{$delivery->id}/items/{$row->id}/void", ['reason' => 'Wrong quantity typed'])->assertForbidden();
 
-    expect(ditem_rows($delivery))->toBe(1)->and(ditem_totals($po, $line)['delivered'])->toBe('60');
+    expect(ditem_rows($delivery))->toBe(1)->and(ditem_totals($po, $a)['delivered'])->toBe('60');
 
     $delivery->forceFill(['status' => DeliveryStatus::Complete])->save();
 
-    ditem_post($reviewer, $delivery, [ditem_line($line, 10)])->assertSessionHasNoErrors();
-    expect(ditem_totals($po, $line)['delivered'])->toBe('70');
-});
+    // one quantity per line per IAR: line A is taken, line B is free
+    ditem_post($reviewer, $delivery, [ditem_line($a, 10)])->assertSessionHasErrors('lines.0.po_item_id');
+    ditem_post($reviewer, $delivery, [ditem_line($b, 10)])->assertSessionHasNoErrors();
 
+    expect(ditem_totals($po, $a)['delivered'])->toBe('60')->and(ditem_totals($po, $b)['delivered'])->toBe('10');
+});
 it('refuses items for a closed PO or a PO that is no longer verified', function () {
     [$po, [$line]] = ditem_po([100]);
     $delivery = ditem_delivery($po);
@@ -392,14 +377,15 @@ it('does not count the rows of a voided delivery even if a row is still active',
 
 it('voids a row with a reason and updates the totals; the row stays on record', function () {
     [$po, [$line]] = ditem_po([1000]);
-    $delivery = ditem_delivery($po);
+    $first = ditem_delivery($po);
+    $second = ditem_delivery($po);
     $reviewer = ditem_reviewer();
 
-    ditem_post($reviewer, $delivery, [ditem_line($line, 500)])->assertSessionHasNoErrors();
-    ditem_post($reviewer, $delivery, [ditem_line($line, 300)])->assertSessionHasNoErrors();
-    $wrong = DeliveryItem::query()->where('delivery_id', $delivery->id)->orderBy('id')->firstOrFail();
+    ditem_post($reviewer, $first, [ditem_line($line, 500)])->assertSessionHasNoErrors();
+    ditem_post($reviewer, $second, [ditem_line($line, 300)])->assertSessionHasNoErrors();
+    $wrong = DeliveryItem::query()->where('delivery_id', $first->id)->firstOrFail();
 
-    $this->actingAs($reviewer)->post("/deliveries/{$delivery->id}/items/{$wrong->id}/void", ['reason' => 'Typed 500 instead of 50'])->assertSessionHasNoErrors();
+    $this->actingAs($reviewer)->post("/deliveries/{$first->id}/items/{$wrong->id}/void", ['reason' => 'Typed 500 instead of 50'])->assertSessionHasNoErrors();
 
     $wrong->refresh();
 
@@ -408,7 +394,7 @@ it('voids a row with a reason and updates the totals; the row stays on record', 
         ->and($wrong->voided_by)->toBe($reviewer->id)
         ->and($wrong->voided_at)->not->toBeNull()
         ->and(ditem_totals($po, $line))->toMatchArray(['delivered' => '300', 'undelivered' => '700'])
-        ->and(ditem_rows($delivery))->toBe(2);
+        ->and(ditem_rows($first))->toBe(1);
 
     $entry = Activity::query()->where('log_name', 'delivery')->where('event', 'status_changed')->where('subject_type', (new DeliveryItem)->getMorphClass())->latest('id')->first();
 
@@ -417,11 +403,10 @@ it('voids a row with a reason and updates the totals; the row stays on record', 
         ->and($entry->properties['reason'])->toBe('Typed 500 instead of 50')
         ->and($entry->properties['delivered_total_after'])->toBe('300');
 
-    // entered again after the void
-    ditem_post($reviewer, $delivery, [ditem_line($line, 50)])->assertSessionHasNoErrors();
-    expect(ditem_totals($po, $line)['delivered'])->toBe('350');
+    // entered again on the same IAR after the void
+    ditem_post($reviewer, $first, [ditem_line($line, 50)])->assertSessionHasNoErrors();
+    expect(ditem_totals($po, $line)['delivered'])->toBe('350')->and(ditem_rows($first))->toBe(2);
 });
-
 it('needs a reason of 5 to 500 characters to void a row, and a row cannot be voided twice', function () {
     [$po, [$line]] = ditem_po([100]);
     $delivery = ditem_delivery($po);
@@ -511,18 +496,17 @@ it('adds no permission: delivery.update-items belongs to the PO Reviewer job onl
 
 it('derives not delivered, partial and full at the right moments, and never stores them', function () {
     [$po, [$a, $b]] = ditem_po([10, 10]);
-    $delivery = ditem_delivery($po);
     $reviewer = ditem_reviewer();
 
     expect(DeliveryTotals::progress($po->id))->toBe(DeliveryProgress::NotDelivered);
 
-    ditem_post($reviewer, $delivery, [ditem_line($a, 10)])->assertSessionHasNoErrors();
+    ditem_post($reviewer, ditem_delivery($po), [ditem_line($a, 10)])->assertSessionHasNoErrors();
     expect(DeliveryTotals::progress($po->id))->toBe(DeliveryProgress::Partial);
 
-    ditem_post($reviewer, $delivery, [ditem_line($b, 4)])->assertSessionHasNoErrors();
+    ditem_post($reviewer, ditem_delivery($po), [ditem_line($b, 4)])->assertSessionHasNoErrors();
     expect(DeliveryTotals::progress($po->id))->toBe(DeliveryProgress::Partial);
 
-    ditem_post($reviewer, $delivery, [ditem_line($b, 6)])->assertSessionHasNoErrors();
+    ditem_post($reviewer, ditem_delivery($po), [ditem_line($b, 6)])->assertSessionHasNoErrors();
     expect(DeliveryTotals::progress($po->id))->toBe(DeliveryProgress::Full);
 
     // the stored status never moved, and no total is stored on the PO or its lines
@@ -531,12 +515,11 @@ it('derives not delivered, partial and full at the right moments, and never stor
         ->and(Schema::hasColumn('po_items', 'delivered'))->toBeFalse()
         ->and(Schema::hasColumn('purchase_orders', 'progress'))->toBeFalse();
 });
-
 it('does not let one over-delivered line hide a line that is still missing', function () {
     [$po, [$a, $b]] = ditem_po([10, 10]);
     $delivery = ditem_delivery($po);
 
-    ditem_post(ditem_reviewer(), $delivery, [ditem_line($a, 20, null, ['over_delivery' => true, 'over_delivery_reason' => 'Double shipment'])])->assertSessionHasNoErrors();
+    ditem_post(ditem_reviewer(), $delivery, [ditem_line($a, 20, ['over_delivery' => true, 'over_delivery_reason' => 'Double shipment'])])->assertSessionHasNoErrors();
 
     expect(DeliveryTotals::progress($po->id))->toBe(DeliveryProgress::Partial)
         ->and(ditem_totals($po, $a)['over_by'])->toBe('10')
@@ -567,8 +550,8 @@ it('writes one readable audit entry per save, in the delivery log', function () 
 
     expect($entries)->toHaveCount(1)
         ->and($entries->first()->subject_id)->toBe($delivery->id)
-        ->and($entries->first()->properties->new->delivered_items)->toContain($a->description)->toContain($b->description)
-        ->and($entries->first()->properties->purchase_order_id)->toBe($po->id);
+        ->and($entries->first()->properties['new']['delivered_items'])->toContain($a->description)->toContain($b->description)
+        ->and($entries->first()->properties['purchase_order_id'])->toBe($po->id);
 });
 
 it('turns quantities into whole thousandths and back', function () {

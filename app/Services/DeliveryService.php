@@ -94,13 +94,13 @@ class DeliveryService
 
     /**
      * Drives the Deliveries tab of the PO page: the rows and the "Record delivery" button. Step 6.1 adds the derived
-     * delivery progress and every PO line with its running totals and history (computed now, never stored).
+     * delivery progress and every PO line with its totals (computed now, never stored). Step 6.1b adds the history grouped by
+     * delivery (one IAR each, with the running total of the line after each row).
      *
-     * @return array{can_record: bool, blocked_reason: string|null, rows: list<array<string, mixed>>, progress: array{value: string, label: string}|null, lines: list<array<string, mixed>>}
+     * @return array{can_record: bool, blocked_reason: string|null, rows: list<array<string, mixed>>, progress: array{value: string, label: string}|null, lines: list<array<string, mixed>>, groups: list<array<string, mixed>>}
      */
     public function panel(PurchaseOrder $po): array
     {
-        $user = Auth::user();
         $create = Gate::inspect('create', [Delivery::class, $po]);
         $canView = Gate::allows('viewAny', Delivery::class);
         $totals = $canView ? $this->items->poSummary($po) : null;
@@ -108,13 +108,14 @@ class DeliveryService
         return [
             'can_record' => $create->allowed(),
             // Only people who could record get told why they cannot.
-            'blocked_reason' => (! $create->allowed() && $user?->can(DeliveryPolicy::ENCODE)) ? $create->message() : null,
+            'blocked_reason' => (! $create->allowed() && Gate::allows(DeliveryPolicy::ENCODE)) ? $create->message() : null,
             'rows' => $canView
                 ? $this->deliveries->forPurchaseOrder($po->id)->map(fn (Delivery $d) => $this->row($d))->values()->all()
                 : [],
             // Step 6.1: only people who may read deliveries get the totals and the history.
             'progress' => $totals['progress'] ?? null,
             'lines' => $totals['lines'] ?? [],
+            'groups' => $totals['groups'] ?? [],
         ];
     }
 

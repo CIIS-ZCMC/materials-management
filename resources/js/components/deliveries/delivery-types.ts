@@ -75,6 +75,9 @@ export type DeliveryItemEntry = {
 };
 
 // One PO line: ordered, delivered (all non-voided deliveries, active rows), undelivered, over_by (null when not over) and its history rows.
+// Step 6.1b: entered_here = the quantity this line already has on THIS delivery (null = none yet; a line holds one active quantity per
+// delivery), active_here = how many active rows it has here (more than 1 only for rows saved before the rule; they still count).
+// Both are empty (null / 0) on the PO tab, which is not about one delivery.
 export type DeliveryLine = {
     po_item_id: number;
     description: string;
@@ -83,6 +86,8 @@ export type DeliveryLine = {
     delivered: string;
     undelivered: string;
     over_by: string | null;
+    entered_here: string | null;
+    active_here: number;
     rows: DeliveryItemEntry[];
 };
 
@@ -90,16 +95,30 @@ export type DeliveryLine = {
 export type DeliveryItemsPanelData = {
     can_update: boolean;
     locked_reason: string | null;
+    can_record_another: boolean; // delivery.encode AND the PO still accepts a delivery (step 6.1b)
+    record_blocked_reason: string | null; // only for people who hold delivery.encode
     progress: ItemProgress;
     lines: DeliveryLine[];
 };
 
 // What the update form receives.
+// Step 6.1b: no date per line; every row takes the delivery's date received.
 export type ItemSheet = {
-    today: string;
-    min_date: string | null;
+    date_received: string;
     progress: ItemProgress;
     lines: DeliveryLine[];
+};
+
+// Step 6.1b: one delivery (one IAR) of the PO with its quantities. running_total = the line's total after this row (null for a voided row
+// or a voided delivery: it does not count).
+export type DeliveryGroupRow = DeliveryItemEntry & { description: string | null; unit: string | null; running_total: string | null };
+
+export type DeliveryGroup = {
+    delivery_id: number;
+    iar_number: string;
+    status: { value: string; label: string };
+    date_received: string;
+    rows: DeliveryGroupRow[];
 };
 
 // What the PO detail page receives for its Deliveries tab.
@@ -108,7 +127,8 @@ export type PoDeliveriesData = {
     blocked_reason: string | null;
     rows: DeliveryRow[];
     progress: ItemProgress | null; // null for people who may not read deliveries
-    lines: DeliveryLine[];
+    lines: DeliveryLine[]; // totals only (rows are empty here)
+    groups: DeliveryGroup[]; // the history, one group per delivery
 };
 
 // Step 5.3: the documents panel of the delivery page. The server decides every can_* flag (DeliveryPolicy + DeliveryDocumentRule).

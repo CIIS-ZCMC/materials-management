@@ -14,7 +14,9 @@ import { Label } from '@/components/ui/label';
 // can_void and checks every action again (DeliveryPolicy + DeliveryItemRule); this panel only draws what it is told.
 // React state: "voiding" is the row whose void form is open, "reason" what is typed in it, "busy" blocks the buttons
 // while a request runs and "actionError" is the server's message.
-type Props = { deliveryId: number; items: DeliveryItemsPanelData };
+// Step 6.1b: one IAR = one delivery. The heading carries the IAR number; more items arrive with a NEW delivery (a new IAR), recorded from
+// the PO page by the Encoder. The link shows only when the server says so (delivery.encode and the PO still accepts a delivery).
+type Props = { deliveryId: number; poId: number; iarNumber: string; items: DeliveryItemsPanelData };
 
 const MIN_REASON = 5;
 
@@ -39,7 +41,7 @@ export const lineColumns: ListColumn<DeliveryLine>[] = [
     },
 ];
 
-export default function DeliveryItemsPanel({ deliveryId, items }: Props) {
+export default function DeliveryItemsPanel({ deliveryId, poId, iarNumber, items }: Props) {
     const [voiding, setVoiding] = useState<DeliveryItemEntry | null>(null);
     const [reason, setReason] = useState('');
     const [busy, setBusy] = useState(false);
@@ -79,7 +81,7 @@ export default function DeliveryItemsPanel({ deliveryId, items }: Props) {
         <section className="space-y-4 rounded-md border p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                    <h3 className="text-base font-medium">Delivered items</h3>
+                    <h3 className="text-base font-medium">Delivered items · IAR {iarNumber}</h3>
                     <p className="text-sm text-muted-foreground">
                         PO progress: <span className="font-medium text-foreground">{items.progress.label}</span>. Totals count every delivery of the PO and are worked out each time, never saved.
                     </p>
@@ -91,6 +93,21 @@ export default function DeliveryItemsPanel({ deliveryId, items }: Props) {
                         </Link>
                     </Button>
                 )}
+            </div>
+
+            <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                <p>One IAR = one delivery. If more items arrive later with a new IAR, record a new delivery from the PO page.</p>
+                <p className="mt-1">
+                    {items.can_record_another ? (
+                        <Link href={`/deliveries/create?purchase_order=${poId}`} className="font-medium underline underline-offset-4">
+                            Record another delivery
+                        </Link>
+                    ) : items.record_blocked_reason ? (
+                        <span className="text-muted-foreground">{items.record_blocked_reason}</span>
+                    ) : (
+                        <span className="text-muted-foreground">Ask the Encoder to record it.</span>
+                    )}
+                </p>
             </div>
 
             {items.locked_reason && <p className="text-sm text-muted-foreground">{items.locked_reason}</p>}
@@ -137,6 +154,11 @@ export default function DeliveryItemsPanel({ deliveryId, items }: Props) {
                             <summary className="cursor-pointer text-sm font-medium break-words">
                                 {line.description} ({line.rows.length})
                             </summary>
+                            {line.active_here > 1 && (
+                                <p className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+                                    This line has {line.active_here} quantities on this IAR (entered before the one-quantity rule). Both still count in the totals.
+                                </p>
+                            )}
                             <div className="mt-2">
                                 <DeliveryLineHistory
                                     rows={line.rows}
