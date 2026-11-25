@@ -8,6 +8,7 @@ use App\Models\Delivery;
 use App\Models\PurchaseOrder;
 use App\Policies\DeliveryPolicy;
 use App\Services\DeliveryDocumentService;
+use App\Services\DeliveryItemService;
 use App\Services\DeliveryService;
 use App\Services\PoConsolidatedPdfService;
 use Illuminate\Http\JsonResponse;
@@ -20,6 +21,7 @@ use Inertia\Response;
 /**
  * Step 5.2: delivery batches (one IAR each). The section gate (routes/web.php) opens the pages;
  * DeliveryPolicy decides each action (delivery.encode + DeliveryRule); DeliveryService does the work.
+ * Step 6.1: the page also carries the delivered-items panel (DeliveryItemService); the update itself is DeliveryItemController.
  */
 class DeliveryController extends Controller
 {
@@ -27,6 +29,7 @@ class DeliveryController extends Controller
         private readonly DeliveryService $service,
         private readonly DeliveryDocumentService $documents,
         private readonly PoConsolidatedPdfService $pdf,
+        private readonly DeliveryItemService $items,
     ) {}
 
     public function index(Request $request): Response
@@ -115,6 +118,8 @@ class DeliveryController extends Controller
             ],
             // Step 5.3: the documents panel (checklist, files, and the buttons this person may use).
             'documents' => $this->documents->panel($delivery, request()->user()),
+            // Step 6.1: every PO line with its running totals, the history of this delivery, and the Update button.
+            'items' => $this->items->panel($delivery, request()->user()),
         ]);
     }
 

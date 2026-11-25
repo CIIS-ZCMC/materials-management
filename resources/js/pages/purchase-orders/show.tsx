@@ -12,7 +12,7 @@ import PoHistoryList from '@/components/purchase-orders/po-history-list';
 import type { HistoryEntry } from '@/components/purchase-orders/po-history-list';
 import PoPrintButton from '@/components/purchase-orders/po-print-button';
 import PoReviewActions from '@/components/purchase-orders/po-review-actions';
-import PoStatusBadge from '@/components/purchase-orders/po-status-badge';
+import PoProgressBadge from '@/components/purchase-orders/po-progress-badge';
 import PoSubmitButton from '@/components/purchase-orders/po-submit-button';
 import RecordExtensionDialog from '@/components/purchase-orders/record-extension-dialog';
 import type { ScheduleSplitData } from '@/components/purchase-orders/schedule-split-editor';
@@ -249,7 +249,8 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                         )}
                         {/* Submit to Reviewer (Procurement): on every tab once the PO has an active document. The server decides (documents.can_submit). */}
                         <PoSubmitButton poId={po.id} canSubmit={po.documents.can_submit} consolidated={po.documents.consolidated} />
-                        <PoStatusBadge status={po.status} />
+                        {/* A verified PO shows how much of it has arrived (derived on the server, never saved). */}
+                        <PoProgressBadge status={po.status} progress={po.deliveries.progress} />
                     </div>
                 </div>
 
@@ -307,7 +308,7 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                         <Field label="Mode of procurement">{orDash(po.mode_of_procurement)}</Field>
                         <Field label="Free-text line">{orDash(po.remarks)}</Field>
                         <Field label="Status">
-                            <PoStatusBadge status={po.status} />
+                            <PoProgressBadge status={po.status} progress={po.deliveries.progress} />
                         </Field>
                         {po.closed_at && <Field label="Closed on">{po.closed_at}</Field>}
                     </dl>

@@ -43,6 +43,8 @@ use Spatie\Activitylog\Models\Activity;
  *   void()     reason required. Status through StatusTransition, the IAR number voided with the same reason.
  *              Step 5.3: the delivery's files are voided with the same reason and leave the combined PDF
  *              (the controller rebuilds it afterwards).
+ *              Step 6.1: the delivery's delivered-item rows are voided with the same reason (DeliveryItemService),
+ *              so they drop out of every total.
  *   noteIarWindowExceeded()  step 5.3: ONE audit event per delivery when the IAR window has passed.
  *
  * Errors that belong to a field use that field's key; a rule that blocks the whole action uses "form".
@@ -55,6 +57,7 @@ class DeliveryService
         private readonly IarNumberService $iar,
         private readonly PersonnelDirectory $people,
         private readonly PoDocumentService $documents,
+        private readonly DeliveryItemService $items,
     ) {}
 
     // ---- reading ---------------------------------------------------------------------------------
@@ -90,15 +93,17 @@ class DeliveryService
     }
 
     /**
-     * Drives the Deliveries tab of the PO page: the rows and the "Record delivery" button.
+     * Drives the Deliveries tab of the PO page: the rows and the "Record delivery" button. Step 6.1 adds the derived
+     * delivery progress and every PO line with its running totals and history (computed now, never stored).
      *
-     * @return array{can_record: bool, blocked_reason: string|null, rows: list<array<string, mixed>>}
+     * @return array{can_record: bool, blocked_reason: string|null, rows: list<array<string, mixed>>, progress: array{value: string, label: string}|null, lines: list<array<string, mixed>>}
      */
     public function panel(PurchaseOrder $po): array
     {
         $user = Auth::user();
         $create = Gate::inspect('create', [Delivery::class, $po]);
         $canView = Gate::allows('viewAny', Delivery::class);
+        $totals = $canView ? $this->items->poSummary($po) : null;
 
         return [
             'can_record' => $create->allowed(),
@@ -107,6 +112,9 @@ class DeliveryService
             'rows' => $canView
                 ? $this->deliveries->forPurchaseOrder($po->id)->map(fn (Delivery $d) => $this->row($d))->values()->all()
                 : [],
+            // Step 6.1: only people who may read deliveries get the totals and the history.
+            'progress' => $totals['progress'] ?? null,
+            'lines' => $totals['lines'] ?? [],
         ];
     }
 
@@ -395,6 +403,12 @@ class DeliveryService
 
             if ($number->status === IarNumberStatus::Used) {
                 $this->iar->void($number, $reason);
+            }
+
+            // Step 6.1: the delivered-item rows stay on record, marked void with the same reason. Every total ignores a
+            // voided delivery anyway; this keeps the history readable.
+            if (Auth::user() !== null) {
+                $this->items->voidAllOfDelivery($row, $reason, Auth::user());
             }
 
             // TODO(step 7.3 / 8.1): call PurchaseOrderService::syncClosed($row->purchaseOrder) here, because a voided

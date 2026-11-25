@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\DeliveryProgress;
 use App\Enums\PurchaseOrderSource;
 use App\Enums\PurchaseOrderStatus;
 use App\Http\Requests\EscalatePurchaseOrderRequest;
@@ -19,6 +20,7 @@ use App\Services\PoExtensionService;
 use App\Services\PoHistoryService;
 use App\Services\PoReviewService;
 use App\Services\PurchaseOrderService;
+use App\Support\DeliveryTotals;
 use App\Support\DisplayTime;
 use App\Support\Money;
 use App\Support\PoDocumentChecklist;
@@ -60,10 +62,21 @@ class PurchaseOrderController extends Controller
                 ->all(),
         );
 
+        // Step 6.1: how much of each VERIFIED PO has arrived. Derived from the delivered quantities (two queries for the
+        // whole page), never stored; the stored status is not changed.
+        $progress = DeliveryTotals::progressFor(
+            $paginator->getCollection()
+                ->filter(fn (PurchaseOrder $po) => $po->status === PurchaseOrderStatus::Verified)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->values()
+                ->all(),
+        );
+
         return Inertia::render('purchase-orders/index', [
             'purchaseOrders' => [
                 'data' => $paginator->getCollection()
-                    ->map(fn (PurchaseOrder $po) => $this->row($po, $escalations[$po->id] ?? null))
+                    ->map(fn (PurchaseOrder $po) => $this->row($po, $escalations[$po->id] ?? null, $progress[$po->id] ?? null))
                     ->values(),
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),
@@ -232,13 +245,15 @@ class PurchaseOrderController extends Controller
      * @param  array{reason: string|null, by: string|null, at: string}|null  $escalation
      * @return array<string, mixed>
      */
-    private function row(PurchaseOrder $po, ?array $escalation = null): array
+    private function row(PurchaseOrder $po, ?array $escalation = null, ?DeliveryProgress $progress = null): array
     {
         return [
             'id' => $po->id,
             'po_number' => $po->po_number,
             'supplier' => $po->supplier->name,
             'status' => ['value' => $po->status->value, 'label' => $po->status->label()],
+            // Step 6.1: only a verified PO has one (derived, never stored).
+            'progress' => $progress !== null ? ['value' => $progress->value, 'label' => $progress->label()] : null,
             'due_date' => $po->due_date?->toDateString(),
             'po_date' => $po->po_date?->toDateString(),
             'items_count' => (int) $po->items_count,

@@ -94,6 +94,17 @@ class PoItem extends Model
     }
 
     /**
+     * The quantities delivered for this line (step 6.1), voided rows included. Totals are computed by
+     * App\Support\DeliveryTotals, never stored.
+     *
+     * @return HasMany<DeliveryItem, $this>
+     */
+    public function deliveryItems(): HasMany
+    {
+        return $this->hasMany(DeliveryItem::class, 'po_item_id');
+    }
+
+    /**
      * This line's quantity on each scheduled date (step 3.3c). Empty for a PO without a split.
      *
      * @return HasMany<PoScheduleItem, $this>

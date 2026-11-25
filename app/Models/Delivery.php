@@ -14,8 +14,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 /**
- * One delivery batch of a PO = one IAR (step 5.2, CONTEXT.md decision 47). Header only:
- * per-item delivered quantities belong to step 6.1.
+ * One delivery batch of a PO = one IAR (step 5.2, CONTEXT.md decision 47). The row is the header; the
+ * delivered quantity per PO line and date is in delivery_items (step 6.1).
  *
  * @property int $id
  * @property int $purchase_order_id
@@ -33,6 +33,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read PurchaseOrder $purchaseOrder
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, DeliveryItem> $items
  *
  * Not mass-assignable on purpose:
  * - status: changed only through App\Support\StatusTransition::apply()
@@ -108,6 +109,16 @@ class Delivery extends Model
     public function documents(): HasMany
     {
         return $this->hasMany(PoDocument::class, 'delivery_id')->orderBy('sort_order');
+    }
+
+    /**
+     * The delivered quantities of this delivery, per PO line and date (step 6.1), voided rows included.
+     *
+     * @return HasMany<DeliveryItem, $this>
+     */
+    public function items(): HasMany
+    {
+        return $this->hasMany(DeliveryItem::class)->orderBy('delivered_on')->orderBy('id');
     }
 
     /**

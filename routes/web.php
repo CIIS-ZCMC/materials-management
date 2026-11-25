@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\IarNumberController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\DeliveryController;
 use App\Http\Controllers\DeliveryDocumentController;
+use App\Http\Controllers\DeliveryItemController;
 use App\Http\Controllers\ItemCategoryController;
 use App\Http\Controllers\ItemController;
 use App\Http\Controllers\PersonnelController;
@@ -171,6 +172,20 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::post('documents/{document}/void', 'void')->name('void');
             Route::post('documents/{document}/replace', 'replace')->name('replace');
             Route::get('documents/{document}/file', 'file')->name('file');
+        });
+
+    // Step 6.1: the delivered items of a delivery (the PO Reviewer's delivery update: quantity per PO line and date).
+    // DeliveryPolicy decides each action (delivery.update-items) and DeliveryItemRule the delivery status. A row is always
+    // the one of the delivery in the URL (404 otherwise). Same section gate as above (it already holds delivery.update-items).
+    Route::middleware('can:section.deliveries')
+        ->controller(DeliveryItemController::class)
+        ->prefix('deliveries/{delivery}/items')
+        ->where(['delivery' => '[0-9]+', 'item' => '[0-9]+'])
+        ->name('deliveries.items.')
+        ->group(function () {
+            Route::get('create', 'create')->name('create');
+            Route::post('/', 'store')->name('store');
+            Route::post('{item}/void', 'void')->name('void');
         });
 
     Route::inertia('property-documents', 'property-documents/index')

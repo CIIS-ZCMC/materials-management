@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Contracts\DeliveryItemRepositoryInterface;
 use App\Contracts\DeliveryRepositoryInterface;
 use App\Contracts\ItemCategoryRepositoryInterface;
 use App\Contracts\ItemRepositoryInterface;
@@ -18,6 +19,7 @@ use App\Integrations\PurchaseOrders\LocalPurchaseOrderProvider;
 use App\Listeners\AuditAuthEvents;
 use App\Models\User;
 use App\Policies\ActivityPolicy;
+use App\Repositories\DeliveryItemRepository;
 use App\Repositories\DeliveryRepository;
 use App\Repositories\ItemCategoryRepository;
 use App\Repositories\ItemRepository;
@@ -77,6 +79,12 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(
             DeliveryRepositoryInterface::class,
             DeliveryRepository::class,
+        );
+
+        // Step 6.1: reads and row locks of the delivered-item rows.
+        $this->app->bind(
+            DeliveryItemRepositoryInterface::class,
+            DeliveryItemRepository::class,
         );
 
         // Step 2.3 / 5.0: the personnel directory (decision 4). Today the dummy

@@ -6,7 +6,7 @@ import LiveSearchInput from '@/components/live-search-input';
 import PaginationBar from '@/components/pagination-bar';
 import type { PaginationMeta } from '@/components/pagination-bar';
 import OverdueBadgeSlot from '@/components/purchase-orders/overdue-badge-slot';
-import PoStatusBadge from '@/components/purchase-orders/po-status-badge';
+import PoProgressBadge from '@/components/purchase-orders/po-progress-badge';
 import ResponsiveList from '@/components/responsive-list';
 import type { ListColumn } from '@/components/responsive-list';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,8 @@ type PoRow = {
     po_number: string;
     supplier: string;
     status: { value: string; label: string };
+    // Step 6.1: how much of a verified PO has arrived (derived on the server, never saved); null for other statuses.
+    progress: { value: string; label: string } | null;
     due_date: string | null;
     po_date: string | null;
     items_count: number;
@@ -133,7 +135,7 @@ export default function PurchaseOrdersIndex({ purchaseOrders, filters, statusOpt
             cardCell: (p) => p.po_number,
         },
         { key: 'supplier', header: 'Supplier', sortable: true, card: 'summary', cell: (p) => p.supplier },
-        { key: 'status', header: 'Status', sortable: true, card: 'badge', cell: (p) => <PoStatusBadge status={p.status} /> },
+        { key: 'status', header: 'Status', sortable: true, card: 'badge', cell: (p) => <PoProgressBadge status={p.status} progress={p.progress} /> },
         { key: 'po_date', header: 'PO date', sortable: true, className: 'tabular-nums', cell: (p) => p.po_date ?? '—' },
         {
             key: 'due_date',

@@ -3,7 +3,8 @@ import { ArrowLeft, Pencil } from 'lucide-react';
 import type { ReactNode } from 'react';
 import DeliveryStatusBadge from '@/components/deliveries/delivery-status-badge';
 import DeliveryDocumentsPanel from '@/components/deliveries/delivery-documents-panel';
-import type { DeliveryDetail, DeliveryDocumentsData } from '@/components/deliveries/delivery-types';
+import DeliveryItemsPanel from '@/components/deliveries/delivery-items-panel';
+import type { DeliveryDetail, DeliveryDocumentsData, DeliveryItemsPanelData } from '@/components/deliveries/delivery-types';
 import VoidDeliveryDialog from '@/components/deliveries/void-delivery-dialog';
 import Heading from '@/components/heading';
 import { formatPhp, orDash } from '@/components/purchase-orders/po-format';
@@ -13,6 +14,7 @@ type Props = {
     delivery: DeliveryDetail;
     can: { edit: boolean; void: boolean; edit_reason: string | null; void_reason: string | null };
     documents: DeliveryDocumentsData;
+    items: DeliveryItemsPanelData; // step 6.1
 };
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -24,7 +26,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
     );
 }
 
-export default function DeliveryShow({ delivery, can, documents }: Props) {
+export default function DeliveryShow({ delivery, can, documents, items }: Props) {
     const voided = delivery.status.value === 'voided';
     const inspectors = delivery.signatories.filter((s) => s.role === 'inspector');
     const endUser = delivery.signatories.find((s) => s.role === 'end_user');
@@ -117,6 +119,10 @@ export default function DeliveryShow({ delivery, can, documents }: Props) {
                         </Field>
                     </dl>
                 </section>
+
+                {/* Step 6.1: delivered quantity per PO line and date (the PO Reviewer's update), with running totals and history.
+                    Shown before the documents so the totals are the first thing a Reviewer sees. */}
+                <DeliveryItemsPanel deliveryId={delivery.id} items={items} />
 
                 <DeliveryDocumentsPanel deliveryId={delivery.id} poId={delivery.purchase_order.id} status={delivery.status.value} documents={documents} />
             </div>

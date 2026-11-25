@@ -53,11 +53,62 @@ export type DeliveryFormOptions = {
 
 export type PoSummary = { id: number; po_number: string; supplier: string | null; po_date: string | null };
 
+// Step 6.1: the delivered items. The progress and every total are worked out by the server each time (never saved).
+export type ItemProgress = { value: 'not_delivered' | 'partial' | 'full'; label: string };
+
+export type DeliveryItemEntry = {
+    id: number;
+    delivery_id: number;
+    iar_number: string;
+    delivery_voided: boolean;
+    delivered_on: string;
+    quantity: string;
+    status: { value: string; label: string }; // 'active' | 'void'
+    over_delivery: boolean;
+    over_delivery_reason: string | null;
+    recorded_by: string | null;
+    recorded_at: string | null;
+    void_reason: string | null;
+    voided_by: string | null;
+    voided_at: string | null;
+    can_void: boolean;
+};
+
+// One PO line: ordered, delivered (all non-voided deliveries, active rows), undelivered, over_by (null when not over) and its history rows.
+export type DeliveryLine = {
+    po_item_id: number;
+    description: string;
+    unit: string | null;
+    ordered: string;
+    delivered: string;
+    undelivered: string;
+    over_by: string | null;
+    rows: DeliveryItemEntry[];
+};
+
+// The delivered-items panel of the delivery page.
+export type DeliveryItemsPanelData = {
+    can_update: boolean;
+    locked_reason: string | null;
+    progress: ItemProgress;
+    lines: DeliveryLine[];
+};
+
+// What the update form receives.
+export type ItemSheet = {
+    today: string;
+    min_date: string | null;
+    progress: ItemProgress;
+    lines: DeliveryLine[];
+};
+
 // What the PO detail page receives for its Deliveries tab.
 export type PoDeliveriesData = {
     can_record: boolean;
     blocked_reason: string | null;
     rows: DeliveryRow[];
+    progress: ItemProgress | null; // null for people who may not read deliveries
+    lines: DeliveryLine[];
 };
 
 // Step 5.3: the documents panel of the delivery page. The server decides every can_* flag (DeliveryPolicy + DeliveryDocumentRule).

@@ -3,9 +3,11 @@
 namespace App\Policies;
 
 use App\Models\Delivery;
+use App\Models\DeliveryItem;
 use App\Models\PurchaseOrder;
 use App\Models\User;
 use App\Support\DeliveryDocumentRule;
+use App\Support\DeliveryItemRule;
 use App\Support\DeliveryRule;
 use Illuminate\Auth\Access\Response;
 
@@ -18,6 +20,10 @@ use Illuminate\Auth\Access\Response;
  *   delivery.upload-docs + documents.void   void and replace a file (the Encoder; Procurement holds documents.void
  *                                       but not delivery.upload-docs, so it cannot touch delivery files)
  *   documents.view-originals or delivery.upload-docs / delivery.encode   open one original file
+ * Step 6.1, the delivered items of a delivery (the PO Reviewer's delivery update), existing permission only:
+ *   delivery.update-items               add items (several PO lines in one save) and void one item row (reason)
+ *                                       The Encoder does not hold it; the PO Reviewer preset does. Each action is also limited by
+ *                                       DeliveryItemRule (the delivery must be "Documents complete", PO verified and not closed).
  * The PO Bundle is untouched: PurchaseOrderPolicy still needs po.upload-files for it, which the Encoder lacks.
  * Each action is also limited by DeliveryDocumentRule (delivery status, closed PO).
  * Existing permissions only: nothing was added in step 5.2 or 5.3.
@@ -83,6 +89,36 @@ class DeliveryPolicy
 
         $delivery->loadMissing('purchaseOrder');
         $reason = DeliveryRule::voidBlockReason($delivery);
+
+        return $reason === null ? Response::allow() : Response::deny($reason);
+    }
+
+    // ---- delivered items of a delivery (step 6.1) --------------------------------------------------
+
+    public const UPDATE_ITEMS = 'delivery.update-items';
+
+    /** Add delivered items (several PO lines in one save). Only while the delivery is "Documents complete". */
+    public function updateItems(User $actor, Delivery $delivery): Response
+    {
+        if (! $actor->can(self::UPDATE_ITEMS)) {
+            return Response::deny();
+        }
+
+        $delivery->loadMissing('purchaseOrder');
+        $reason = DeliveryItemRule::addBlockReason($delivery);
+
+        return $reason === null ? Response::allow() : Response::deny($reason);
+    }
+
+    /** Void ONE item row with a reason. Called as ('voidItem', [$delivery, $item]); without the row it checks the delivery only (the buttons). */
+    public function voidItem(User $actor, Delivery $delivery, ?DeliveryItem $item = null): Response
+    {
+        if (! $actor->can(self::UPDATE_ITEMS)) {
+            return Response::deny();
+        }
+
+        $delivery->loadMissing('purchaseOrder');
+        $reason = DeliveryItemRule::voidBlockReason($delivery, $item);
 
         return $reason === null ? Response::allow() : Response::deny($reason);
     }

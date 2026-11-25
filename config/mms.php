@@ -92,7 +92,7 @@
 |                   may carry (MMS_DELIVERY_MIN_INSPECTORS, MMS_DELIVERY_MAX_INSPECTORS;
 |                   default 1 and 3). The end-user is always exactly one person.
 | audit.subject_types  Model class => label shown in the Audit Log filter.
-|                   Later steps add Delivery, etc. here.
+|                   Later steps add Delivery, etc. here (step 6.1: DeliveryItem).
 | audit.fields      Property key => label for the "what changed" column.
 | audit.events      Event name => label.
 |
@@ -302,6 +302,7 @@ return [
             \App\Models\IarSeries::class => 'IAR series',
             \App\Models\IarNumber::class => 'IAR number',
             \App\Models\Delivery::class => 'Delivery',
+            \App\Models\DeliveryItem::class => 'Delivered item',
         ],
 
         'fields' => [
@@ -348,6 +349,11 @@ return [
             'date_received' => 'Date received',
             'inspectors' => 'Inspectors',
             'end_user' => 'End-user',
+            'delivered_items' => 'Delivered items',
+            'over_delivery' => 'Over-delivery',
+            'item' => 'Item',
+            'quantity' => 'Quantity',
+            'delivered_total_after' => 'Total delivered after',
         ],
 
         'events' => [
@@ -361,6 +367,8 @@ return [
             'po_printed' => 'PO printed',
             'extension_recorded' => 'Extension recorded',
             'iar_window_exceeded' => 'IAR window exceeded',
+            'delivery_items_recorded' => 'Delivered items recorded',
+            'delivery_items_voided' => 'Delivered items voided with the delivery',
             'document_uploaded' => 'Document uploaded',
             'document_removed' => 'Document removed',
             'documents_reordered' => 'Documents reordered',
