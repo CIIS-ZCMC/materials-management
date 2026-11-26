@@ -6,7 +6,6 @@ use App\Enums\IarSeriesType;
 use App\Enums\PurchaseOrderStatus;
 use App\Models\Delivery;
 use App\Models\DeliveryItem;
-use App\Models\Personnel;
 use App\Models\PoItem;
 use App\Models\PurchaseOrder;
 use App\Models\User;
@@ -85,8 +84,8 @@ function damt_delivery(PurchaseOrder $po, int $amountCents = 100000): Delivery
         'fund_cluster' => '01',
         'amount' => '1000.00',
         'date_received' => now()->setTimezone('Asia/Manila')->toDateString(),
-        'inspectors' => [(string) Personnel::factory()->create(['is_inspector' => true, 'is_end_user' => false, 'is_active' => true])->id],
-        'end_user' => (string) Personnel::factory()->create(['is_inspector' => false, 'is_end_user' => true, 'is_active' => true])->id,
+        'inspectors' => [['name' => 'Ana Inspector', 'position' => 'Pharmacist II']],
+        'end_user' => ['name' => 'Cora Enduser', 'position' => 'Nurse IV'],
     ])->assertSessionHasNoErrors();
 
     $delivery = Delivery::query()->where('iar_number', $number)->firstOrFail();

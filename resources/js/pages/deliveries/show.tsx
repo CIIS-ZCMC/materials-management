@@ -121,8 +121,9 @@ export default function DeliveryShow({ delivery, can, documents, items }: Props)
                                 '—'
                             ) : (
                                 <ul className="space-y-1">
-                                    {inspectors.map((s) => (
-                                        <li key={s.person_id}>
+                                    {inspectors.map((s, index) => (
+                                        // role + index: typed rows have no person_id
+                                        <li key={`${s.role}-${index}`}>
                                             {s.name}
                                             {s.position ? <span className="block text-xs font-normal text-muted-foreground">{s.position}</span> : null}
                                         </li>

@@ -9,15 +9,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
- * A person on one delivery (inspector or end-user), as a SNAPSHOT: name and position are copied from
- * the personnel directory when the person is chosen, so the record stays readable if UMIS changes
- * later. person_id is the directory's id (a string, because a UMIS id may not be a number).
+ * A person on one delivery (inspector or end-user), as typed by the MMS staff (step 5.2b, decision 58): name and
+ * position are free text. Rows saved before 5.2b were copied from the personnel directory and also carry person_id
+ * (the directory's id, a string because a UMIS id may not be a number) and employee_no; rows typed by hand have both
+ * as null. The directory is no longer the source of these rows.
  *
  * @property int $id
  * @property int $delivery_id
  * @property DeliverySignatoryRole $role
- * @property string $person_id
- * @property string $employee_no
+ * @property string|null $person_id
+ * @property string|null $employee_no
  * @property string $name
  * @property string|null $position
  * @property int $sort_order

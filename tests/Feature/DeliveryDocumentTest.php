@@ -7,7 +7,6 @@ use App\Enums\PoDocumentType;
 use App\Enums\PurchaseOrderStatus;
 use App\Events\DeliveryIarWindowExceeded;
 use App\Models\Delivery;
-use App\Models\Personnel;
 use App\Models\PoDocument;
 use App\Models\PurchaseOrder;
 use App\Models\User;
@@ -128,8 +127,8 @@ function ddoc_delivery(PurchaseOrder $po, int $sequence = 8001, ?User $encoder =
         'fund_cluster' => '01',
         'amount' => '1000.00',
         'date_received' => now()->setTimezone('Asia/Manila')->toDateString(),
-        'inspectors' => [(string) Personnel::factory()->create(['is_inspector' => true, 'is_end_user' => false, 'is_active' => true])->id],
-        'end_user' => (string) Personnel::factory()->create(['is_inspector' => false, 'is_end_user' => true, 'is_active' => true])->id,
+        'inspectors' => [['name' => 'Ana Inspector', 'position' => 'Pharmacist II']],
+        'end_user' => ['name' => 'Cora Enduser', 'position' => 'Nurse IV'],
     ])->assertSessionHasNoErrors();
 
     return Delivery::query()->where('iar_number', $number)->firstOrFail();

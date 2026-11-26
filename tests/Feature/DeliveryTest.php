@@ -7,10 +7,11 @@ use App\Enums\PurchaseOrderStatus;
 use App\Models\Delivery;
 use App\Models\DeliverySignatory;
 use App\Models\IarNumber;
-use App\Models\Personnel;
 use App\Models\PurchaseOrder;
 use App\Models\User;
+use App\Services\DeliveryService;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\Permission\PermissionRegistrar;
@@ -19,6 +20,7 @@ use Spatie\Permission\PermissionRegistrar;
 | Step 5.2: delivery batches. Uses the real roles and job presets from config/mms_access.php
 | (RolePermissionSeeder), so the tests follow the access rules and not a copy of them.
 | The database is refreshed by tests/Pest.php (the kit's default for Feature tests).
+| Step 5.2b (decision 58): inspectors and the end-user are typed by hand ({name, position}); no Personnel in these tests.
 | NOT run when written (no PHP in that session): run `php artisan test --filter=DeliveryTest`.
 */
 
@@ -65,26 +67,6 @@ function deliveryPo(string $status = 'verified', array $attributes = []): Purcha
     return $po->fresh();
 }
 
-function deliveryInspector(array $attributes = []): Personnel
-{
-    return Personnel::factory()->create([
-        'is_inspector' => true,
-        'is_end_user' => false,
-        'is_active' => true,
-        ...$attributes,
-    ]);
-}
-
-function deliveryEndUser(array $attributes = []): Personnel
-{
-    return Personnel::factory()->create([
-        'is_inspector' => false,
-        'is_end_user' => true,
-        'is_active' => true,
-        ...$attributes,
-    ]);
-}
-
 /** A valid request body for POST /deliveries. */
 function deliveryPayload(PurchaseOrder $po, int $sequence = 7001, array $overrides = []): array
 {
@@ -96,8 +78,9 @@ function deliveryPayload(PurchaseOrder $po, int $sequence = 7001, array $overrid
         'fund_cluster' => '01',
         'amount' => '125000.50',
         'date_received' => deliveryToday(),
-        'inspectors' => [(string) deliveryInspector()->id],
-        'end_user' => (string) deliveryEndUser()->id,
+        // Step 5.2b: typed by hand, no directory.
+        'inspectors' => [['name' => 'Ana Inspector', 'position' => 'Pharmacist II']],
+        'end_user' => ['name' => 'Cora Enduser', 'position' => 'Nurse IV'],
         ...$overrides,
     ];
 }
@@ -312,75 +295,289 @@ it('does not void a delivery twice or on a closed PO', function () {
 
 // ---- signatories from the directory ---------------------------------------------------------------
 
-it('saves inspectors and the end-user from the directory as a snapshot', function () {
+it('saves the typed inspectors and end-user with no directory id', function () {
     $po = deliveryPo();
-    $inspectorA = deliveryInspector(['name' => 'Ana Inspector', 'position' => 'Pharmacist II']);
-    $inspectorB = deliveryInspector(['name' => 'Ben Inspector', 'position' => 'Engineer III']);
-    $endUser = deliveryEndUser(['name' => 'Cora Enduser', 'position' => 'Nurse IV']);
 
     $delivery = recordDelivery(deliveryEncoder(), $po, 7001, [
-        'inspectors' => [(string) $inspectorA->id, (string) $inspectorB->id],
-        'end_user' => (string) $endUser->id,
+        // Spaces are collapsed and trimmed, the typed case is kept, an empty position becomes null.
+        'inspectors' => [
+            ['name' => '  Ana   Inspector ', 'position' => 'Pharmacist  II'],
+            ['name' => 'Ben Inspector', 'position' => ''],
+        ],
+        // The same person may be inspector and end-user.
+        'end_user' => ['name' => 'Ana Inspector', 'position' => 'Pharmacist II'],
     ]);
 
-    $rows = DeliverySignatory::where('delivery_id', $delivery->id)->get();
+    $inspectors = DeliverySignatory::where('delivery_id', $delivery->id)->where('role', 'inspector')->orderBy('sort_order')->get();
+    $endUser = DeliverySignatory::where('delivery_id', $delivery->id)->where('role', 'end_user')->firstOrFail();
 
-    expect($rows)->toHaveCount(3)
-        ->and($rows->where('person_id', (string) $inspectorA->id)->first()->name)->toBe('Ana Inspector')
-        ->and($rows->where('person_id', (string) $inspectorA->id)->first()->position)->toBe('Pharmacist II')
-        ->and($rows->where('person_id', (string) $endUser->id)->first()->employee_no)->toBe($endUser->employee_no);
+    expect($inspectors)->toHaveCount(2)
+        ->and($inspectors[0]->name)->toBe('Ana Inspector')
+        ->and($inspectors[0]->position)->toBe('Pharmacist II')
+        ->and($inspectors[0]->person_id)->toBeNull()
+        ->and($inspectors[0]->employee_no)->toBeNull()
+        ->and($inspectors[0]->sort_order)->toBe(0)
+        ->and($inspectors[1]->name)->toBe('Ben Inspector')
+        ->and($inspectors[1]->position)->toBeNull()
+        ->and($inspectors[1]->sort_order)->toBe(1)
+        ->and($endUser->name)->toBe('Ana Inspector')
+        ->and($endUser->person_id)->toBeNull();
 
-    // The snapshot does not change when the directory does.
-    $inspectorA->forceFill(['name' => 'Renamed Person'])->save();
-
-    $this->actingAs(deliveryEncoder())
-        ->put("/deliveries/{$delivery->id}", [
-            'invoice_no' => 'INV-CHANGED',
-            'fund_cluster' => '01',
-            'amount' => '125000.50',
-            'date_received' => deliveryToday(),
-            'inspectors' => [(string) $inspectorA->id, (string) $inspectorB->id],
-            'end_user' => (string) $endUser->id,
-        ])
-        ->assertSessionHasNoErrors();
-
-    expect(DeliverySignatory::where('delivery_id', $delivery->id)->where('person_id', (string) $inspectorA->id)->first()->name)->toBe('Ana Inspector');
+    // The audit entry lists "Name (Position)", just "Name" without a position.
+    $entry = Activity::where('log_name', 'delivery')->where('event', 'created')->firstOrFail();
+    expect(data_get($entry->properties, 'new.inspectors'))->toBe('Ana Inspector (Pharmacist II), Ben Inspector')
+        ->and(data_get($entry->properties, 'new.end_user'))->toBe('Ana Inspector (Pharmacist II)');
 });
 
-it('rejects a person who does not have the role, an inactive person and an unknown id', function () {
+it('ignores a blank extra inspector row and keeps the error under the row that caused it', function () {
     $po = deliveryPo();
     $encoder = deliveryEncoder();
 
-    $notInspector = deliveryEndUser(); // is_inspector = false
-    $inactive = deliveryInspector(['is_active' => false]);
+    $delivery = recordDelivery($encoder, $po, 7001, [
+        'inspectors' => [
+            ['name' => 'Ana Inspector', 'position' => ''],
+            ['name' => '', 'position' => ''],
+            ['name' => '   ', 'position' => '  '],
+        ],
+    ]);
+
+    expect(DeliverySignatory::where('delivery_id', $delivery->id)->where('role', 'inspector')->count())->toBe(1);
+
+    // A blank row BEFORE a bad one does not shift the error key: the bad row is the third row of the form.
+    $this->actingAs($encoder)
+        ->post('/deliveries', deliveryPayload($po, 7002, [
+            'inspectors' => [
+                ['name' => 'Ana Inspector', 'position' => ''],
+                ['name' => '', 'position' => ''],
+                ['name' => 'B', 'position' => ''],
+            ],
+        ]))
+        ->assertSessionHasErrors('inspectors.2.name');
+});
+
+it('refuses an inspector or end-user name that is empty, too short or too long', function () {
+    $po = deliveryPo();
+    $encoder = deliveryEncoder();
+
+    // Every row empty = no inspector at all.
+    $this->actingAs($encoder)
+        ->post('/deliveries', deliveryPayload($po, 7001, ['inspectors' => [['name' => '', 'position' => '']]]))
+        ->assertSessionHasErrors('inspectors');
 
     $this->actingAs($encoder)
-        ->post('/deliveries', deliveryPayload($po, 7001, ['inspectors' => [(string) $notInspector->id]]))
-        ->assertSessionHasErrors('inspectors.0');
+        ->post('/deliveries', deliveryPayload($po, 7001, ['inspectors' => [['name' => 'A', 'position' => '']]]))
+        ->assertSessionHasErrors('inspectors.0.name');
 
     $this->actingAs($encoder)
-        ->post('/deliveries', deliveryPayload($po, 7001, ['inspectors' => [(string) $inactive->id]]))
-        ->assertSessionHasErrors('inspectors.0');
+        ->post('/deliveries', deliveryPayload($po, 7001, ['inspectors' => [['name' => str_repeat('a', 151), 'position' => '']]]))
+        ->assertSessionHasErrors('inspectors.0.name');
 
     $this->actingAs($encoder)
-        ->post('/deliveries', deliveryPayload($po, 7001, ['inspectors' => ['999999']]))
-        ->assertSessionHasErrors('inspectors.0');
+        ->post('/deliveries', deliveryPayload($po, 7001, ['inspectors' => [['name' => 'Ana Inspector', 'position' => str_repeat('p', 151)]]]))
+        ->assertSessionHasErrors('inspectors.0.position');
 
     $this->actingAs($encoder)
-        ->post('/deliveries', deliveryPayload($po, 7001, ['end_user' => (string) deliveryInspector()->id]))
-        ->assertSessionHasErrors('end_user');
+        ->post('/deliveries', deliveryPayload($po, 7001, ['end_user' => ['name' => 'C', 'position' => '']]))
+        ->assertSessionHasErrors('end_user.name');
 
-    // Nothing was saved, and no IAR number was used up.
-    expect(Delivery::count())->toBe(0)
-        ->and(IarNumber::count())->toBe(0);
+    $this->actingAs($encoder)
+        ->post('/deliveries', deliveryPayload($po, 7001, ['end_user' => ['name' => 'Cora Enduser', 'position' => str_repeat('p', 151)]]))
+        ->assertSessionHasErrors('end_user.position');
+
+    expect(Delivery::count())->toBe(0);
+});
+
+it('refuses a position without a name, on that row', function () {
+    $po = deliveryPo();
+    $encoder = deliveryEncoder();
+
+    $this->actingAs($encoder)
+        ->post('/deliveries', deliveryPayload($po, 7001, [
+            'inspectors' => [
+                ['name' => 'Ana Inspector', 'position' => ''],
+                ['name' => '', 'position' => 'Engineer III'],
+            ],
+        ]))
+        ->assertSessionHasErrors('inspectors.1.name');
+
+    $this->actingAs($encoder)
+        ->post('/deliveries', deliveryPayload($po, 7001, ['end_user' => ['name' => '', 'position' => 'Nurse IV']]))
+        ->assertSessionHasErrors('end_user.name');
+
+    expect(Delivery::count())->toBe(0);
+});
+
+it('refuses four inspectors', function () {
+    $po = deliveryPo();
+    config(['mms.delivery.max_inspectors' => 3]);
+
+    $this->actingAs(deliveryEncoder())
+        ->post('/deliveries', deliveryPayload($po, 7001, [
+            'inspectors' => [
+                ['name' => 'Inspector One', 'position' => ''],
+                ['name' => 'Inspector Two', 'position' => ''],
+                ['name' => 'Inspector Three', 'position' => ''],
+                ['name' => 'Inspector Four', 'position' => ''],
+            ],
+        ]))
+        ->assertSessionHasErrors('inspectors');
+
+    expect(Delivery::count())->toBe(0);
+});
+
+it('refuses the same inspector name twice, ignoring case, on the second row', function () {
+    $po = deliveryPo();
+
+    $this->actingAs(deliveryEncoder())
+        ->post('/deliveries', deliveryPayload($po, 7001, [
+            'inspectors' => [
+                ['name' => 'Ana Inspector', 'position' => 'Pharmacist II'],
+                ['name' => 'ANA  inspector', 'position' => 'Engineer III'],
+            ],
+        ]))
+        ->assertSessionHasErrors('inspectors.1.name')
+        ->assertSessionDoesntHaveErrors('inspectors.0.name');
+
+    expect(Delivery::count())->toBe(0);
 });
 
 it('needs at least one inspector and one end-user', function () {
     $po = deliveryPo();
+    $encoder = deliveryEncoder();
 
-    $this->actingAs(deliveryEncoder())
-        ->post('/deliveries', deliveryPayload($po, 7001, ['inspectors' => [], 'end_user' => '']))
+    $this->actingAs($encoder)
+        ->post('/deliveries', deliveryPayload($po, 7001, ['inspectors' => [], 'end_user' => ['name' => '', 'position' => '']]))
         ->assertSessionHasErrors(['inspectors', 'end_user']);
+
+    // No end_user sent at all.
+    $payload = deliveryPayload($po, 7001);
+    unset($payload['end_user']);
+
+    $this->actingAs($encoder)->post('/deliveries', $payload)->assertSessionHasErrors('end_user');
+});
+
+it('saves nothing and uses up no IAR number when the people are refused', function () {
+    $po = deliveryPo();
+    $encoder = deliveryEncoder();
+
+    $this->actingAs($encoder)
+        ->post('/deliveries', deliveryPayload($po, 7001, ['inspectors' => [['name' => 'A', 'position' => '']]]))
+        ->assertSessionHasErrors('inspectors.0.name');
+
+    // The Service is the second line of defence: called directly, it refuses the same things with the same keys.
+    $service = app(DeliveryService::class);
+
+    foreach ([
+        ['inspectors' => [['name' => '', 'position' => 'Engineer III']], 'key' => 'inspectors.0.name'],
+        ['inspectors' => [['name' => 'Ana Inspector'], ['name' => 'ana inspector']], 'key' => 'inspectors.1.name'],
+        ['inspectors' => [], 'key' => 'inspectors'],
+        ['end_user' => ['name' => '', 'position' => ''], 'key' => 'end_user'],
+        ['end_user' => ['name' => '', 'position' => 'Nurse IV'], 'key' => 'end_user.name'],
+    ] as $case) {
+        $key = $case['key'];
+        unset($case['key']);
+
+        try {
+            $service->create($po, deliveryPayload($po, 7001, $case));
+            $this->fail("The service accepted a bad body for {$key}.");
+        } catch (ValidationException $e) {
+            expect(array_key_exists($key, $e->errors()))->toBeTrue("No error under {$key}");
+        }
+    }
+
+    expect(Delivery::count())->toBe(0)
+        ->and(DeliverySignatory::count())->toBe(0)
+        ->and(IarNumber::count())->toBe(0);
+});
+
+it('replaces the signatories on edit and logs the change, a position-only change too', function () {
+    $po = deliveryPo();
+    $encoder = deliveryEncoder();
+    $delivery = recordDelivery($encoder, $po, 7001); // Ana Inspector (Pharmacist II); end-user Cora Enduser (Nurse IV)
+
+    $body = fn (array $inspectors, array $endUser) => [
+        'invoice_no' => $delivery->invoice_no,
+        'fund_cluster' => $delivery->fund_cluster,
+        'amount' => '125000.50',
+        'date_received' => deliveryToday(),
+        'inspectors' => $inspectors,
+        'end_user' => $endUser,
+    ];
+
+    // 1) A position-only change is logged on its own.
+    $this->actingAs($encoder)
+        ->put("/deliveries/{$delivery->id}", $body(
+            [['name' => 'Ana Inspector', 'position' => 'Chief Pharmacist']],
+            ['name' => 'Cora Enduser', 'position' => 'Nurse IV'],
+        ))
+        ->assertSessionHasNoErrors();
+
+    $entry = Activity::where('log_name', 'delivery')->where('event', 'updated')->latest('id')->firstOrFail();
+    expect(array_keys((array) data_get($entry->properties, 'new')))->toBe(['inspectors'])
+        ->and(data_get($entry->properties, 'new.inspectors'))->toBe('Ana Inspector (Chief Pharmacist)');
+
+    // 2) New people replace the old rows (the old ones are gone, not kept beside them).
+    $this->actingAs($encoder)
+        ->put("/deliveries/{$delivery->id}", $body(
+            [['name' => 'Ben Inspector', 'position' => ''], ['name' => 'Dina Inspector', 'position' => 'Engineer III']],
+            ['name' => 'Eli Enduser', 'position' => ''],
+        ))
+        ->assertSessionHasNoErrors();
+
+    $rows = DeliverySignatory::where('delivery_id', $delivery->id)->orderBy('role')->orderBy('sort_order')->get();
+
+    expect($rows->pluck('name')->all())->toBe(['Eli Enduser', 'Ben Inspector', 'Dina Inspector'])
+        ->and($rows->pluck('person_id')->filter()->all())->toBe([])
+        ->and(Activity::where('log_name', 'delivery')->where('event', 'updated')->count())->toBe(2);
+
+    // 3) The same people again: nothing changes, nothing is logged.
+    $this->actingAs($encoder)
+        ->put("/deliveries/{$delivery->id}", $body(
+            [['name' => 'Ben Inspector', 'position' => ''], ['name' => 'Dina Inspector', 'position' => 'Engineer III']],
+            ['name' => 'Eli Enduser', 'position' => ''],
+        ))
+        ->assertSessionHasNoErrors();
+
+    expect(Activity::where('log_name', 'delivery')->where('event', 'updated')->count())->toBe(2);
+});
+
+it('still shows a legacy signatory that came from the directory (person_id set) and lets it be edited', function () {
+    $po = deliveryPo();
+    $encoder = deliveryEncoder();
+    $delivery = recordDelivery($encoder, $po, 7001);
+
+    // What a delivery recorded before step 5.2b looks like: the row carries the directory's ids.
+    $legacy = DeliverySignatory::where('delivery_id', $delivery->id)->where('role', 'inspector')->firstOrFail();
+    $legacy->forceFill(['person_id' => 'UMIS-DUMMY-001', 'employee_no' => 'UMIS-DUMMY-001', 'name' => 'Legacy Sample', 'position' => 'Engineer III'])->save();
+
+    $this->actingAs($encoder)
+        ->get("/deliveries/{$delivery->id}")
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('delivery.signatories', 2)
+            ->where('delivery.signatories', fn ($rows) => collect($rows)->contains(
+                fn ($row) => $row['name'] === 'Legacy Sample' && $row['position'] === 'Engineer III' && $row['person_id'] === 'UMIS-DUMMY-001',
+            ))
+            // The typed end-user row has no directory id.
+            ->where('delivery.signatories', fn ($rows) => collect($rows)->contains(
+                fn ($row) => $row['role'] === 'end_user' && $row['person_id'] === null && $row['employee_no'] === null,
+            )));
+
+    $this->actingAs($encoder)->get("/deliveries/{$delivery->id}/edit")->assertOk();
+
+    // Saving the form (it sends only name and position) replaces the old row with a typed one.
+    $this->actingAs($encoder)
+        ->put("/deliveries/{$delivery->id}", [
+            'invoice_no' => $delivery->invoice_no,
+            'fund_cluster' => $delivery->fund_cluster,
+            'amount' => '125000.50',
+            'date_received' => deliveryToday(),
+            'inspectors' => [['name' => 'Legacy Sample', 'position' => 'Engineer III']],
+            'end_user' => ['name' => 'Cora Enduser', 'position' => 'Nurse IV'],
+        ])
+        ->assertSessionHasNoErrors();
+
+    expect(DeliverySignatory::where('delivery_id', $delivery->id)->where('name', 'Legacy Sample')->first()->person_id)->toBeNull();
 });
 
 // ---- editing ---------------------------------------------------------------------------------------
@@ -398,8 +595,8 @@ it('edits the header and logs what changed, but never the IAR number or series',
             'fund_cluster' => '05',
             'amount' => '99,000.00',
             'date_received' => deliveryToday(),
-            'inspectors' => [$inspector->person_id],
-            'end_user' => $endUser->person_id,
+            'inspectors' => [['name' => $inspector->name, 'position' => $inspector->position]],
+            'end_user' => ['name' => $endUser->name, 'position' => $endUser->position],
             // Ignored on purpose:
             'iar_number' => deliveryNumber(9999),
             'iar_series' => 'donation',
@@ -431,8 +628,8 @@ it('writes no audit entry when an edit changes nothing', function () {
             'fund_cluster' => $delivery->fund_cluster,
             'amount' => '125000.50',
             'date_received' => deliveryToday(),
-            'inspectors' => [$inspector->person_id],
-            'end_user' => $endUser->person_id,
+            'inspectors' => [['name' => $inspector->name, 'position' => $inspector->position]],
+            'end_user' => ['name' => $endUser->name, 'position' => $endUser->position],
         ])
         ->assertSessionHasNoErrors();
 
@@ -457,8 +654,8 @@ it('does not edit a voided delivery', function () {
             'fund_cluster' => '01',
             'amount' => '125000.50',
             'date_received' => deliveryToday(),
-            'inspectors' => [$inspector->person_id],
-            'end_user' => $endUser->person_id,
+            'inspectors' => [['name' => $inspector->name, 'position' => $inspector->position]],
+            'end_user' => ['name' => $endUser->name, 'position' => $endUser->position],
         ])
         ->assertForbidden();
 
@@ -496,8 +693,8 @@ it('keeps the date received in the year of the IAR number when editing', functio
             'fund_cluster' => '01',
             'amount' => '125000.50',
             'date_received' => $otherYear,
-            'inspectors' => [$inspector->person_id],
-            'end_user' => $endUser->person_id,
+            'inspectors' => [['name' => $inspector->name, 'position' => $inspector->position]],
+            'end_user' => ['name' => $endUser->name, 'position' => $endUser->position],
         ])
         ->assertSessionHasErrors('date_received');
 });

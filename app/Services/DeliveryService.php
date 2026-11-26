@@ -3,8 +3,6 @@
 namespace App\Services;
 
 use App\Contracts\DeliveryRepositoryInterface;
-use App\Contracts\PersonnelDirectory;
-use App\Data\PersonData;
 use App\Events\DeliveryIarWindowExceeded;
 use App\Enums\DeliveryProgress;
 use App\Enums\DeliverySignatoryRole;
@@ -27,7 +25,6 @@ use App\Support\StatusTransition;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -39,9 +36,13 @@ use Spatie\Activitylog\Models\Activity;
  * Delivery batches (step 5.2, CONTEXT.md decision 47). One delivery = one IAR. Header only.
  *
  *   create()   one transaction: lock the PO, check the rule, insert the delivery (status for_uploading),
- *              reserve the IAR number through IarNumberService, save the signatories, audit.
- *              Any failure (a duplicate or voided IAR number, a person not in the directory) rolls back everything.
+ *              reserve the IAR number through IarNumberService, save the typed signatories, audit.
+ *              Any failure (a duplicate or voided IAR number, a bad typed name) rolls back everything.
  *   update()   invoice, fund cluster, amount, date received and signatories. The IAR number and series are locked.
+ *
+ * Step 5.2b (decision 58): the inspectors and the end-user are TYPED BY HAND (name + optional position). This class no
+ * longer reads the personnel directory; person_id and employee_no stay null on new rows (old rows keep theirs until the
+ * delivery is edited, which replaces them with the typed rows).
  *   void()     reason required. Status through StatusTransition, the IAR number voided with the same reason.
  *              Step 5.3: the delivery's files are voided with the same reason and leave the combined PDF
  *              (the controller rebuilds it afterwards).
@@ -57,7 +58,6 @@ class DeliveryService
     public function __construct(
         private readonly DeliveryRepositoryInterface $deliveries,
         private readonly IarNumberService $iar,
-        private readonly PersonnelDirectory $people,
         private readonly PoDocumentService $documents,
         private readonly DeliveryItemService $items,
     ) {}
@@ -233,7 +233,7 @@ class DeliveryService
     // ---- writing ---------------------------------------------------------------------------------
 
     /**
-     * @param  array<string, mixed>  $data  invoice_no, iar_series, iar_number, fund_cluster, amount, date_received, inspectors[], end_user
+     * @param  array<string, mixed>  $data  invoice_no, iar_series, iar_number, fund_cluster, amount, date_received, inspectors[{name, position}], end_user {name, position}
      *
      * @throws ValidationException
      */
@@ -254,8 +254,6 @@ class DeliveryService
             $type = $input['series'];
             $number = $input['number'];
             $year = (int) substr($input['date_received'], 0, 4);
-
-            $rows = $this->resolveSignatories($input['inspectors'], $input['end_user'], collect());
 
             $delivery = new Delivery;
             $delivery->fill([
@@ -284,7 +282,7 @@ class DeliveryService
             // Rejects a malformed, used or voided number; the exception rolls the whole save back.
             $this->iar->reserve($type, $year, $number, $delivery->id);
 
-            $this->writeSignatories($delivery, $rows);
+            $this->writeSignatories($delivery, $input['inspectors'], $input['end_user']);
 
             Audit::log(
                 event: 'created',
@@ -302,7 +300,7 @@ class DeliveryService
     /**
      * Edits the header and the signatories. The IAR number and series are never changed here.
      *
-     * @param  array<string, mixed>  $data  invoice_no, fund_cluster, amount, date_received, inspectors[], end_user
+     * @param  array<string, mixed>  $data  invoice_no, fund_cluster, amount, date_received, inspectors[{name, position}], end_user {name, position}
      *
      * @throws ValidationException
      */
@@ -326,9 +324,6 @@ class DeliveryService
                 ]);
             }
 
-            $existing = $row->signatories()->get()->keyBy(fn (DeliverySignatory $s) => $s->role->value.'|'.$s->person_id);
-            $rows = $this->resolveSignatories($input['inspectors'], $input['end_user'], $existing);
-
             $before = $this->snapshot($row);
 
             $row->fill([
@@ -338,7 +333,7 @@ class DeliveryService
                 'date_received' => $input['date_received'],
             ])->save();
 
-            $this->writeSignatories($row, $rows);
+            $this->writeSignatories($row, $input['inspectors'], $input['end_user']);
 
             $after = $this->snapshot($row);
             $changed = array_keys(array_filter($after, fn ($value, $key) => $before[$key] !== $value, ARRAY_FILTER_USE_BOTH));
@@ -496,7 +491,7 @@ class DeliveryService
      * Service safe if it is ever called from somewhere else).
      *
      * @param  array<string, mixed>  $data
-     * @return array{invoice_no: string, fund_cluster: string, amount_cents: int, date_received: string, inspectors: list<string>, end_user: string, series: IarSeriesType|null, number: string}
+     * @return array{invoice_no: string, fund_cluster: string, amount_cents: int, date_received: string, inspectors: list<array{name: string, position: string|null}>, end_user: array{name: string, position: string|null}, series: IarSeriesType|null, number: string}
      *
      * @throws ValidationException
      */
@@ -525,19 +520,7 @@ class DeliveryService
             $errors['date_received'] = 'Enter the date received as YYYY-MM-DD.';
         }
 
-        $inspectors = array_values(array_unique(array_filter(
-            array_map(fn ($value) => is_scalar($value) ? trim((string) $value) : '', (array) ($data['inspectors'] ?? [])),
-            fn (string $value) => $value !== '',
-        )));
-
-        if (count($inspectors) < $this->minInspectors() || count($inspectors) > $this->maxInspectors()) {
-            $errors['inspectors'] = "Choose {$this->minInspectors()} to {$this->maxInspectors()} inspectors.";
-        }
-
-        $endUser = $text('end_user');
-        if ($endUser === '') {
-            $errors['end_user'] = 'Choose the end-user.';
-        }
+        [$inspectors, $endUser] = $this->typedPeople($data, $errors);
 
         $series = null;
         $number = '';
@@ -585,135 +568,161 @@ class DeliveryService
     }
 
     /**
-     * Turns the chosen ids into rows to save. A person who is already on this delivery keeps their
-     * snapshot (so a past signatory who later became inactive stays); a NEW person must be an active
-     * person of that role in the directory.
+     * Step 5.2b: cleans and checks the TYPED inspectors and end-user. SaveDeliveryRequest checks the same things first, with
+     * the same sentences; this keeps the Service safe if it is called from somewhere else. Trim, collapse repeated spaces,
+     * keep the typed case. A row with an empty name AND an empty position is ignored; a position without a name is an
+     * error on that row's name. Error keys use the index of the row AS SENT, so the form shows each error under the row that
+     * caused it. The same inspector name twice (ignoring case) is refused on the second row; the same person may be
+     * inspector and end-user.
      *
-     * @param  list<string>  $inspectorIds
-     * @param  Collection<string, DeliverySignatory>  $existing  keyed "role|person_id"
-     * @return list<array{role: DeliverySignatoryRole, person_id: string, employee_no: string, name: string, position: string|null, sort_order: int}>
-     *
-     * @throws ValidationException
+     * @param  array<string, mixed>  $data
+     * @param  array<string, string>  $errors  filled by reference
+     * @return array{0: list<array{name: string, position: string|null}>, 1: array{name: string, position: string|null}}
      */
-    private function resolveSignatories(array $inspectorIds, string $endUserId, Collection $existing): array
+    private function typedPeople(array $data, array &$errors): array
     {
-        $wanted = [];
+        $inspectors = [];
+        $seen = [];
 
-        foreach ($inspectorIds as $index => $id) {
-            $wanted[] = [DeliverySignatoryRole::Inspector, $id, "inspectors.{$index}"];
+        foreach ((array) ($data['inspectors'] ?? []) as $index => $row) {
+            $person = $this->cleanPerson($row);
+
+            if ($person === null) {
+                continue;
+            }
+
+            $problems = $this->personProblems($person);
+
+            if (isset($problems['name'])) {
+                $errors["inspectors.{$index}.name"] = $problems['name'];
+            }
+
+            if (isset($problems['position'])) {
+                $errors["inspectors.{$index}.position"] = $problems['position'];
+            }
+
+            $key = mb_strtolower($person['name']);
+
+            if ($person['name'] !== '' && in_array($key, $seen, true) && ! isset($errors["inspectors.{$index}.name"])) {
+                $errors["inspectors.{$index}.name"] = 'The same inspector name is entered twice.';
+            }
+
+            $seen[] = $key;
+            $inspectors[] = $person;
         }
 
-        $wanted[] = [DeliverySignatoryRole::EndUser, $endUserId, 'end_user'];
+        if (count($inspectors) < $this->minInspectors()) {
+            $errors['inspectors'] = $this->minInspectors() === 1
+                ? 'Enter at least one inspector.'
+                : "Enter at least {$this->minInspectors()} inspectors.";
+        } elseif (count($inspectors) > $this->maxInspectors()) {
+            $errors['inspectors'] = "Enter at most {$this->maxInspectors()} inspectors.";
+        }
 
-        $errors = [];
+        $endUser = $this->cleanPerson($data['end_user'] ?? null);
+
+        if ($endUser === null) {
+            $errors['end_user'] = 'Enter the end-user.';
+            $endUser = ['name' => '', 'position' => null];
+        } else {
+            $problems = $this->personProblems($endUser);
+
+            if (isset($problems['name'])) {
+                $errors['end_user.name'] = $problems['name'];
+            }
+
+            if (isset($problems['position'])) {
+                $errors['end_user.position'] = $problems['position'];
+            }
+        }
+
+        return [$inspectors, $endUser];
+    }
+
+    /**
+     * One typed row, or null when it is not an array or both fields are empty (an unused row is harmless).
+     *
+     * @return array{name: string, position: string|null}|null
+     */
+    private function cleanPerson(mixed $row): ?array
+    {
+        if (! is_array($row)) {
+            return null;
+        }
+
+        $text = function (mixed $value): string {
+            if (! is_scalar($value)) {
+                return '';
+            }
+
+            return trim(preg_replace('/\s+/u', ' ', (string) $value) ?? (string) $value);
+        };
+
+        $name = $text($row['name'] ?? null);
+        $position = $text($row['position'] ?? null);
+
+        if ($name === '' && $position === '') {
+            return null;
+        }
+
+        return ['name' => $name, 'position' => $position === '' ? null : $position];
+    }
+
+    /**
+     * @param  array{name: string, position: string|null}  $person
+     * @return array{name?: string, position?: string}
+     */
+    private function personProblems(array $person): array
+    {
+        $problems = [];
+
+        if ($person['name'] === '') {
+            $problems['name'] = 'Enter the name.';
+        } elseif (mb_strlen($person['name']) < 2 || mb_strlen($person['name']) > 150) {
+            $problems['name'] = 'The name must be 2 to 150 characters.';
+        }
+
+        if ($person['position'] !== null && mb_strlen($person['position']) > 150) {
+            $problems['position'] = 'The position can be at most 150 characters.';
+        }
+
+        return $problems;
+    }
+
+    /**
+     * Makes the stored signatories equal to the typed rows: the old rows are deleted and the new ones inserted (nothing
+     * references a signatory id). person_id and employee_no stay null: nobody is looked up in a directory.
+     *
+     * @param  list<array{name: string, position: string|null}>  $inspectors
+     * @param  array{name: string, position: string|null}  $endUser
+     */
+    private function writeSignatories(Delivery $delivery, array $inspectors, array $endUser): void
+    {
+        $delivery->signatories()->delete();
+
         $rows = [];
-        $position = [];
 
-        foreach ($wanted as [$role, $id, $key]) {
-            $order = $position[$role->value] = ($position[$role->value] ?? -1) + 1;
-            $kept = $existing->get($role->value.'|'.$id);
-
-            if ($kept !== null) {
-                $rows[] = [
-                    'role' => $role,
-                    'person_id' => $id,
-                    'employee_no' => $kept->employee_no,
-                    'name' => $kept->name,
-                    'position' => $kept->position,
-                    'sort_order' => $order,
-                ];
-
-                continue;
-            }
-
-            $person = $this->personForRole($id, $role);
-
-            if (is_string($person)) {
-                $errors[$key] = $person;
-
-                continue;
-            }
-
-            $rows[] = [
-                'role' => $role,
-                'person_id' => (string) $person->id,
-                'employee_no' => $person->employeeNo,
-                'name' => $person->name,
-                'position' => $person->position,
-                'sort_order' => $order,
-            ];
+        foreach (array_values($inspectors) as $order => $person) {
+            $rows[] = [DeliverySignatoryRole::Inspector, $person, $order];
         }
 
-        if ($errors !== []) {
-            throw ValidationException::withMessages($errors);
-        }
+        $rows[] = [DeliverySignatoryRole::EndUser, $endUser, 0];
 
-        return $rows;
-    }
-
-    /**
-     * The directory's find() ignores roles, so the role is checked with a search on the employee number
-     * (active people of that role only). Returns the person, or a sentence saying why not.
-     */
-    private function personForRole(string $id, DeliverySignatoryRole $role): PersonData|string
-    {
-        $person = $this->people->find($id);
-
-        if ($person === null) {
-            return 'This person is not in the personnel directory.';
-        }
-
-        foreach ($this->people->search($person->employeeNo, $role->directoryRole(), PersonnelDirectory::MAX_LIMIT) as $match) {
-            if ((string) $match->id === (string) $person->id) {
-                return $person;
-            }
-        }
-
-        return "{$person->name} is not an active {$role->label()} in the personnel directory.";
-    }
-
-    /**
-     * Makes the stored signatories equal to $rows: keeps the people already there, adds the new ones,
-     * removes the rest.
-     *
-     * @param  list<array{role: DeliverySignatoryRole, person_id: string, employee_no: string, name: string, position: string|null, sort_order: int}>  $rows
-     */
-    private function writeSignatories(Delivery $delivery, array $rows): void
-    {
-        $existing = $delivery->signatories()->get()->keyBy(fn (DeliverySignatory $s) => $s->role->value.'|'.$s->person_id);
-        $keep = [];
-
-        foreach ($rows as $row) {
-            $key = $row['role']->value.'|'.$row['person_id'];
-            $keep[] = $key;
-
-            if ($existing->has($key)) {
-                $current = $existing->get($key);
-
-                if ($current->sort_order !== $row['sort_order']) {
-                    $current->forceFill(['sort_order' => $row['sort_order']])->save();
-                }
-
-                continue;
-            }
-
+        foreach ($rows as [$role, $person, $order]) {
             $signatory = new DeliverySignatory;
             $signatory->forceFill([
                 'delivery_id' => $delivery->id,
-                'role' => $row['role'],
-                'person_id' => $row['person_id'],
-                'employee_no' => $row['employee_no'],
-                'name' => $row['name'],
-                'position' => $row['position'],
-                'sort_order' => $row['sort_order'],
+                'role' => $role,
+                'person_id' => null,
+                'employee_no' => null,
+                'name' => $person['name'],
+                'position' => $person['position'],
+                'sort_order' => $order,
             ])->save();
         }
 
-        foreach ($existing as $key => $signatory) {
-            if (! in_array($key, $keep, true)) {
-                $signatory->delete();
-            }
-        }
+        // A relation loaded earlier (row(), detail()) would still hold the old rows.
+        $delivery->unsetRelation('signatories');
     }
 
     /**
@@ -726,9 +735,11 @@ class DeliveryService
         $delivery->loadMissing('purchaseOrder');
         $people = $delivery->signatories()->get();
 
+        // "Name (Position)", just "Name" without a position, so a position-only change is logged too.
         $names = fn (DeliverySignatoryRole $role): string => $people
             ->filter(fn (DeliverySignatory $s) => $s->role === $role)
-            ->pluck('name')
+            ->sortBy('sort_order')
+            ->map(fn (DeliverySignatory $s) => $s->position ? "{$s->name} ({$s->position})" : $s->name)
             ->implode(', ');
 
         return [

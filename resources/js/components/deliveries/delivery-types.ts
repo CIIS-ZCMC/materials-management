@@ -1,13 +1,5 @@
 // Shared shapes for the delivery screens (step 5.2). They mirror what DeliveryService::row() and detail() send.
 
-export type Person = {
-    id: number | string;
-    employee_no: string;
-    name: string;
-    position: string | null;
-    office: string | null;
-};
-
 export type DeliveryRow = {
     id: number;
     iar_number: string;
@@ -28,8 +20,9 @@ export type DeliveryRow = {
 export type SignatoryRow = {
     role: 'inspector' | 'end_user';
     role_label: string;
-    person_id: string;
-    employee_no: string;
+    // Step 5.2b: null for people typed by hand; old rows copied from the personnel directory still carry both.
+    person_id: string | null;
+    employee_no: string | null;
     name: string;
     position: string | null;
 };

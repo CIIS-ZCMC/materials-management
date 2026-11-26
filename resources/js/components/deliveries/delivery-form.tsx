@@ -1,7 +1,7 @@
 import { useForm } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
-import type { DeliveryDetail, DeliveryFormOptions, Person, PoSummary, SignatoryRow } from '@/components/deliveries/delivery-types';
-import PersonnelPicker from '@/components/deliveries/personnel-picker';
+import type { DeliveryDetail, DeliveryFormOptions, PoSummary, SignatoryRow } from '@/components/deliveries/delivery-types';
+import SignatoryFields, { emptyPerson, type TypedPerson } from '@/components/deliveries/signatory-fields';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,14 +22,14 @@ type FormShape = {
     fund_cluster: string;
     amount: string;
     date_received: string;
-    inspectors: string[];
-    end_user: string;
+    inspectors: TypedPerson[];
+    end_user: TypedPerson;
 };
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-// A signatory saved on the delivery is shown like a person from the directory.
-const toPerson = (s: SignatoryRow): Person => ({ id: s.person_id, employee_no: s.employee_no, name: s.name, position: s.position, office: null });
+// A signatory saved on the delivery becomes a typed row (an old row that came from the directory works too: only name and position are used).
+const toTyped = (s: SignatoryRow): TypedPerson => ({ name: s.name, position: s.position ?? '' });
 
 const selectClass =
     'border-input h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50';
@@ -39,11 +39,11 @@ const selectClass =
 export default function DeliveryForm({ mode, purchaseOrder, options, delivery }: Props) {
     const editing = mode === 'edit';
 
-    const startInspectors = delivery?.signatories.filter((s) => s.role === 'inspector').map(toPerson) ?? [];
-    const startEndUser = delivery?.signatories.find((s) => s.role === 'end_user');
+    // Creating starts with one empty inspector row; editing starts from the saved rows.
+    const savedInspectors = delivery?.signatories.filter((s) => s.role === 'inspector').map(toTyped) ?? [];
+    const startInspectors = savedInspectors.length > 0 ? savedInspectors : [emptyPerson()];
+    const savedEndUser = delivery?.signatories.find((s) => s.role === 'end_user');
 
-    const [inspectors, setInspectors] = useState<Person[]>(startInspectors);
-    const [endUser, setEndUser] = useState<Person[]>(startEndUser ? [toPerson(startEndUser)] : []);
     const [suggested, setSuggested] = useState<string | null>(null);
     const [numberTouched, setNumberTouched] = useState(false);
 
@@ -55,8 +55,8 @@ export default function DeliveryForm({ mode, purchaseOrder, options, delivery }:
         fund_cluster: delivery?.fund_cluster ?? '',
         amount: delivery?.amount ?? '',
         date_received: delivery?.date_received ?? options.today,
-        inspectors: startInspectors.map((p) => String(p.id)),
-        end_user: startEndUser ? startEndUser.person_id : '',
+        inspectors: startInspectors,
+        end_user: savedEndUser ? toTyped(savedEndUser) : emptyPerson(),
     });
 
     const { data, setData } = form;
@@ -93,18 +93,6 @@ export default function DeliveryForm({ mode, purchaseOrder, options, delivery }:
         // numberTouched is read, not a trigger: typing must not fetch again.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editing, data.iar_series, data.date_received]);
-
-    const inspectorError = errors.inspectors ?? Object.entries(errors).find(([key]) => key.startsWith('inspectors.'))?.[1];
-
-    const pickInspectors = (people: Person[]) => {
-        setInspectors(people);
-        setData('inspectors', people.map((p) => String(p.id)));
-    };
-
-    const pickEndUser = (people: Person[]) => {
-        setEndUser(people);
-        setData('end_user', people[0] ? String(people[0].id) : '');
-    };
 
     const submit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -218,8 +206,15 @@ export default function DeliveryForm({ mode, purchaseOrder, options, delivery }:
                 </div>
             </div>
 
-            <PersonnelPicker label="Inspectors" role="inspector" selected={inspectors} max={options.max_inspectors} onChange={pickInspectors} error={inspectorError} />
-            <PersonnelPicker label="End-user" role="end-user" selected={endUser} max={1} onChange={pickEndUser} error={errors.end_user} />
+            <SignatoryFields
+                inspectors={data.inspectors}
+                endUser={data.end_user}
+                onInspectorsChange={(rows) => setData('inspectors', rows)}
+                onEndUserChange={(person) => setData('end_user', person)}
+                min={options.min_inspectors}
+                max={options.max_inspectors}
+                errors={errors}
+            />
 
             <div className="flex flex-wrap gap-2">
                 <Button type="submit" disabled={form.processing}>
