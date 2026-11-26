@@ -91,6 +91,11 @@
 | delivery.min_inspectors / max_inspectors  Step 5.2: how many inspectors one delivery
 |                   may carry (MMS_DELIVERY_MIN_INSPECTORS, MMS_DELIVERY_MAX_INSPECTORS;
 |                   default 1 and 3). The end-user is always exactly one person.
+| delivery.allow_after_full  Step 6.1e: may a NEW delivery be recorded for a PO that is already fully delivered?
+|                   MMS_DELIVERY_AFTER_FULL, default true = allowed, with a soft warning on the Record buttons
+|                   and the form (over-delivery is the only reason to do it). Set false to refuse it (403 with
+|                   the reason). Only adding is affected: editing, voiding and item entry are not. Derived each
+|                   time from the totals, so a voided delivery that made the PO full frees it again.
 | audit.subject_types  Model class => label shown in the Audit Log filter.
 |                   Later steps add Delivery, etc. here (step 6.1: DeliveryItem).
 | audit.fields      Property key => label for the "what changed" column.
@@ -145,6 +150,17 @@ return [
         // Step 5.2: how many inspectors one delivery may carry (the end-user is always exactly one).
         'min_inspectors' => (int) env('MMS_DELIVERY_MIN_INSPECTORS', 1),
         'max_inspectors' => (int) env('MMS_DELIVERY_MAX_INSPECTORS', 3),
+
+        // Step 6.1d: how many centavos the typed Amount of a delivery may differ from the value of its quantities
+        // (quantity x unit price) and still count as "matches"; also the margin before "deliveries add up to more than
+        // the PO total" is warned. 0 = exact to the centavo. Provisional: MMS has not said what the Amount is.
+        // Set MMS_AMOUNT_TOLERANCE_CENTS in .env once decided (500 = PHP 5.00). A check only, never a block.
+        'amount_tolerance_cents' => (int) env('MMS_AMOUNT_TOLERANCE_CENTS', 0),
+
+        // Step 6.1e: may a new delivery be recorded after the PO is fully delivered? true (default) = yes, with a soft
+        // warning; false = refused. Provisional: MMS has not answered whether the supplier may deliver more after full
+        // (over-delivery) or whether that gets a new IAR. Set MMS_DELIVERY_AFTER_FULL=false in .env to block it.
+        'allow_after_full' => (bool) env('MMS_DELIVERY_AFTER_FULL', true),
     ],
 
     /*

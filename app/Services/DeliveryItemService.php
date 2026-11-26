@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Contracts\DeliveryItemRepositoryInterface;
 use App\Enums\DeliveryItemStatus;
+use App\Enums\DeliveryProgress;
 use App\Enums\DeliveryStatus;
 use App\Exceptions\InvalidStatusTransition;
 use App\Models\Delivery;
@@ -13,6 +14,7 @@ use App\Models\PurchaseOrder;
 use App\Models\User;
 use App\Policies\DeliveryPolicy;
 use App\Support\Audit;
+use App\Support\DeliveryAmounts;
 use App\Support\DeliveryItemRule;
 use App\Support\DeliveryTotals;
 use App\Support\DisplayTime;
@@ -82,6 +84,7 @@ class DeliveryItemService
         // why when it does not, everybody else is told to ask the Encoder.
         $record = Gate::inspect('create', [Delivery::class, $delivery->purchaseOrder]);
         $encodes = (bool) $user?->can(DeliveryPolicy::ENCODE);
+        $progress = $this->progress($delivery->purchase_order_id);
 
         return [
             'can_update' => $update->allowed(),
@@ -89,7 +92,12 @@ class DeliveryItemService
             'locked_reason' => $handles && ! $update->allowed() ? $update->message() : null,
             'can_record_another' => $record->allowed(),
             'record_blocked_reason' => $encodes && ! $record->allowed() ? $record->message() : null,
-            'progress' => $this->progress($delivery->purchase_order_id),
+            'progress' => $progress,
+            // Step 6.1e: the PO is fully delivered (derived, same figure as the progress above). With the switch on the page softens
+            // "Record another delivery" and adds a note; with it off the Policy has already hidden the button.
+            'fully_delivered' => $progress['value'] === DeliveryProgress::Full->value,
+            // Step 6.1d: typed Amount against the value of the quantities (quantity x unit price). A check only, never a block.
+            'amount_check' => DeliveryAmounts::checkFor($delivery),
             'lines' => $this->lines($delivery->purchaseOrder, only: $delivery),
         ];
     }

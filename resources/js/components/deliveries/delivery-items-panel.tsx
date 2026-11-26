@@ -1,7 +1,8 @@
 import { Link, router } from '@inertiajs/react';
-import { Plus } from 'lucide-react';
+import { Plus, Truck } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import DeliveryLineHistory from '@/components/deliveries/delivery-line-history';
+import { FULLY_DELIVERED_NOTE } from '@/components/deliveries/delivery-types';
 import type { DeliveryItemEntry, DeliveryItemsPanelData, DeliveryLine } from '@/components/deliveries/delivery-types';
 import ResponsiveList from '@/components/responsive-list';
 import type { ListColumn } from '@/components/responsive-list';
@@ -16,6 +17,11 @@ import { Label } from '@/components/ui/label';
 // while a request runs and "actionError" is the server's message.
 // Step 6.1b: one IAR = one delivery. The heading carries the IAR number; more items arrive with a NEW delivery (a new IAR), recorded from
 // the PO page by the Encoder. The link shows only when the server says so (delivery.encode and the PO still accepts a delivery).
+// Step 6.1c (front-end only): "Record another delivery" is a real button next to "Update delivered items". When EVERY PO line already has a
+// quantity on this IAR there is nothing left to save here (the server would refuse it), so the Update button gives way to a note that says
+// what to do instead. A delivery with some lines still open keeps the button: "Partially delivered" is about the whole PO, not this IAR.
+// Step 6.1e: when the PO is fully delivered "Record another delivery" is an OUTLINE button with a note (a soft warning; nothing is blocked
+// unless the server switch allow_after_full is off, and then can_record_another is false and the button is not drawn).
 type Props = { deliveryId: number; poId: number; iarNumber: string; items: DeliveryItemsPanelData };
 
 const MIN_REASON = 5;
@@ -48,6 +54,13 @@ export default function DeliveryItemsPanel({ deliveryId, poId, iarNumber, items 
     const [actionError, setActionError] = useState<string | null>(null);
 
     const withRows = items.lines.filter((line) => line.rows.length > 0);
+
+    // Lines that already carry a quantity on THIS IAR (entered_here is null when none). Worked out from what the server sent.
+    const totalLines = items.lines.length;
+    const enteredLines = items.lines.filter((line) => line.entered_here !== null).length;
+    const allEntered = totalLines > 0 && enteredLines === totalLines;
+    const showUpdate = items.can_update && !allEntered;
+    const showAllEnteredNote = items.can_update && allEntered;
 
     function close() {
         setVoiding(null);
@@ -85,29 +98,45 @@ export default function DeliveryItemsPanel({ deliveryId, poId, iarNumber, items 
                     <p className="text-sm text-muted-foreground">
                         PO progress: <span className="font-medium text-foreground">{items.progress.label}</span>. Totals count every delivery of the PO and are worked out each time, never saved.
                     </p>
+                    {totalLines > 0 && (
+                        <p className="text-sm text-muted-foreground">
+                            PO lines entered on this IAR: <span className="font-medium text-foreground tabular-nums">{enteredLines} of {totalLines}</span>
+                        </p>
+                    )}
                 </div>
-                {items.can_update && (
-                    <Button asChild size="sm">
-                        <Link href={`/deliveries/${deliveryId}/items/create`}>
-                            <Plus className="size-4" /> Update delivered items
-                        </Link>
-                    </Button>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                    {showUpdate && (
+                        <Button asChild size="sm">
+                            <Link href={`/deliveries/${deliveryId}/items/create`}>
+                                <Plus className="size-4" /> Update delivered items
+                            </Link>
+                        </Button>
+                    )}
+                    {items.can_record_another && (
+                        <Button asChild size="sm" variant={items.fully_delivered ? 'outline' : 'default'}>
+                            <Link href={`/deliveries/create?purchase_order=${poId}`}>
+                                <Truck className="size-4" /> Record another delivery
+                            </Link>
+                        </Button>
+                    )}
+                </div>
             </div>
 
             <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
-                <p>One IAR = one delivery. If more items arrive later with a new IAR, record a new delivery from the PO page.</p>
-                <p className="mt-1">
-                    {items.can_record_another ? (
-                        <Link href={`/deliveries/create?purchase_order=${poId}`} className="font-medium underline underline-offset-4">
-                            Record another delivery
-                        </Link>
-                    ) : items.record_blocked_reason ? (
-                        <span className="text-muted-foreground">{items.record_blocked_reason}</span>
-                    ) : (
-                        <span className="text-muted-foreground">Ask the Encoder to record it.</span>
-                    )}
-                </p>
+                {showAllEnteredNote ? (
+                    <>
+                        <p className="font-medium">Every PO line already has a quantity on this IAR, so there is nothing more to add here.</p>
+                        <p className="mt-1 text-muted-foreground">
+                            To correct a quantity, void it in the history below and enter it again. More items arrive with a new IAR: record a new delivery from the PO page.
+                        </p>
+                    </>
+                ) : (
+                    <p>One IAR = one delivery. If more items arrive later with a new IAR, record a new delivery from the PO page.</p>
+                )}
+                {items.can_record_another && items.fully_delivered && <p className="mt-1 font-medium text-amber-700 dark:text-amber-400">{FULLY_DELIVERED_NOTE}</p>}
+                {!items.can_record_another && (
+                    <p className="mt-1 text-muted-foreground">{items.record_blocked_reason ?? 'Ask the Encoder to record it.'}</p>
+                )}
             </div>
 
             {items.locked_reason && <p className="text-sm text-muted-foreground">{items.locked_reason}</p>}

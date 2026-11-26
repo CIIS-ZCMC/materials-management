@@ -63,6 +63,9 @@ export default function DeliveryItemsCreate({ delivery, sheet }: Props) {
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [busy, setBusy] = useState(false);
 
+    // Step 6.1c: every line already has a quantity on this IAR, so nothing can be saved here (the server would refuse it too).
+    const allTaken = sheet.lines.length > 0 && sheet.lines.every((line) => line.entered_here !== null);
+
     const chosen = sheet.lines.filter((line) => entries[line.po_item_id].selected && line.entered_here === null);
 
     function change(id: number, patch: Partial<Entry>) {
@@ -160,6 +163,13 @@ export default function DeliveryItemsCreate({ delivery, sheet }: Props) {
                         One IAR = one delivery = one quantity per PO line. If more of a line arrives later with a new IAR, record a new delivery from the PO page.
                     </p>
                 </div>
+
+                {allTaken && (
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+                        <p className="font-medium">Every PO line already has a quantity on this IAR, so there is nothing to save here.</p>
+                        <p className="mt-1 text-muted-foreground">To correct a quantity, go back, void it and enter it again. For more items, record a new delivery with a new IAR.</p>
+                    </div>
+                )}
 
                 {(errors.form || errors.lines) && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">{errors.form ?? errors.lines}</p>}
 

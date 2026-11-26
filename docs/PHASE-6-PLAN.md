@@ -1,6 +1,6 @@
 # PHASE-6-PLAN: Part 3, monitoring and property documents
 
-First written 2026-11-25 (after step 5.3). **Updated 2026-11-25 (after step 6.1 was built and checked)** with: the 6.1b revision (one delivery = one IAR = one set of quantities), provisional defaults that unblock 6.2, and the decision to leave roles and permissions as they are until the real MMS staff are set up.
+First written 2026-11-25 (after step 5.3). **Updated 2026-11-25 (after step 6.1 was built and checked) and 2026-11-26 (after step 6.1e: statuses, test numbers and decision numbers)** with: the 6.1b revision (one delivery = one IAR = one set of quantities), provisional defaults that unblock 6.2, and the decision to leave roles and permissions as they are until the real MMS staff are set up.
 Replaces Phase 6 of DEVELOPMENT-GUIDE.docx (written 2026-11-12, before Phases 4 and 5 existed).
 Sources: DEVELOPMENT-GUIDE.docx, PHASE-4-PLAN-after-4.4.md, PHASE-5-PLAN.md, and the project files as they stand now (CONTEXT.md decisions 1 to 54, PROGRESS.md).
 Where this file differs from the guide, this file wins. Same use as before: one step per chat, attach CONTEXT.md and PROGRESS.md (updated after the previous step) plus the files listed.
@@ -16,15 +16,17 @@ Where this file differs from the guide, this file wins. Same use as before: one 
 | 5.2 | Done | `deliveries` and `delivery_signatories`: the delivery HEADER (Invoice #, IAR #, Fund Cluster, Amount in centavos, date received, signatories). One delivery = one IAR. Decision 47. |
 | 5.3 | Done | DR, OR, IAR files per delivery, completeness gate ("Mark complete" / "Reopen for uploading"), combined PO PDF, IAR window audit event. Decision 48. |
 | 6.1 | **Done 2026-11-25** | `delivery_items`, running totals, over-delivery, void, derived PO progress. DeliveryItemTest 29 passed, DeliveryTest 38, DeliveryDocumentTest 24, browser check by the user: working. Decisions 49 to 54. |
-| **6.1b** | **Not started (do first)** | Revision found after talking to an MMS staff member: every delivery has its own IAR, quantity and documents. See 6.1b below. |
-| 6.2 | **Unblocked on PROVISIONAL defaults** (section 4) | Equipment decision, PAR / Sub-PAR / ICS records. Built so MMS's final answer is a config change. |
+| 6.1b | **Done 2026-11-26** (browser check by the user; decision 55) | One delivery = one IAR = one set of quantities. Details in 6.1b below (kept for the record). |
+| 6.1c, 6.1d | **Done 2026-11-26** (browser check by the user; decision 56) | Front-end polish (Record another delivery button, Quantity delivered column, note instead of the Update button) and amount checks (warnings only). Not described below; see PROGRESS.md. |
+| 6.1e | **Done 2026-11-26** (tests and browser check by the user; decision 57) | Recording a delivery on a PO that is already fully delivered: soft warning by default, config switch `delivery.allow_after_full` (env `MMS_DELIVERY_AFTER_FULL`) to block it. Not described below; see PROGRESS.md. |
+| 6.2 | **NEXT. Unblocked on PROVISIONAL defaults** (section 4) | Equipment decision, PAR / Sub-PAR / ICS records. Built so MMS's final answer is a config change. |
 | 6.3 | Blocked | Needs 6.2 and the blank PAR, Sub-PAR and ICS forms (scans or PDFs). |
 
-Numbers to remember: 40 permissions, CONTEXT.md decisions run to 54 (the next new one is **55**), the Encoder preset holds `delivery.encode`, `delivery.upload-docs`, `documents.void`; the PO Reviewer preset holds `delivery.update-items`; the Inventory Team preset holds `equipment.decide`, `par.generate`, `ics.generate`.
+Numbers to remember: 40 permissions, CONTEXT.md decisions run to 57 (the next new one is **58**), the Encoder preset holds `delivery.encode`, `delivery.upload-docs`, `documents.void`; the PO Reviewer preset holds `delivery.update-items`; the Inventory Team preset holds `equipment.decide`, `par.generate`, `ics.generate`.
 
-**Before 6.1b (5 minutes):**
-1. Make sure the latest `PROGRESS.md` and `CONTEXT.md` (6.1 done, decisions 49 to 54) are in the project and attached.
-2. Optional: run `php artisan test` once and note the result (only the 3 known kit failures are accepted; it was not rerun after 6.1).
+**Before 6.2 (5 minutes):**
+1. Make sure the latest `PROGRESS.md` and `CONTEXT.md` (decisions up to 57) are in the project and attached.
+2. Run the full `php artisan test` once and write the numbers into PROGRESS.md (the files of Phase 6 were run one by one on 2026-11-26 and are recorded there: DeliveryFullTest 11, DeliveryTest 38, DeliveryAmountTest 12, DeliveryItemTest 27, DeliveryItemIarTest 13, DeliveryDocumentTest 24; only the 3 known kit failures are accepted in the full run).
 
 ---
 
@@ -49,12 +51,13 @@ Numbers to remember: 40 permissions, CONTEXT.md decisions run to 54 (the next ne
 4. **Lock order.** Everywhere: PO row first, then delivery row.
 5. **Rules are classes** (`PoDocumentRule`, `DeliveryRule`, `DeliveryDocumentRule`, `DeliveryItemRule`): they return a block reason or null; the Policy and the Service both call them (the Service again under locks). A new property rule (6.2) follows the same pattern.
 6. **Status changes** only through `StatusTransition::apply()`. Audit through `Audit::log()` with labels added to `config/mms.php`.
-7. **Test helper prefixes in use:** `delivery*`, `ddoc_`, `po_doc_*`, `po_types_*`, `ditem_` (6.1 tests; check the real prefix in `DeliveryItemTest`). New tests use a new prefix (`ditem2_` for 6.1b; pick another for 6.2).
+7. **Test helper prefixes in use:** `delivery*`, `ddoc_`, `po_doc_*`, `po_types_*`, `ditem_` (6.1 tests; check the real prefix in `DeliveryItemTest`), `ditem2_` (6.1b), `damt_` (6.1d), `dfull_` (6.1e). New tests use a new prefix (pick another for 6.2).
 8. **Open from Phase 5:** Advance Notice Letter placement; Q4 of Phase 5 (name of the downloaded combined PDF); Q5 of Phase 5 (required supporting documents, default DR, OR, IAR); the IAR window has no consequence (log and event only).
 9. **Known gaps kept:** the deliveries list does not use `useLiveSearch` / `PaginationBar`; the PO Documents tab shows the file type as small grey text.
 10. **Real data.** Never attach real office files. IAR scans and the real sequencing sheet stay out of chats; use sanitized samples.
 11. **Environment.** Windows, PowerShell, Pest. Code is written without running it, so the first test run may show small errors in the tests themselves: paste the output and the session fixes it. Tests use SQLite; the `deliveries` foreign-key migration skips SQLite.
 12. **Roles and permissions are left as they are (decision of 2026-11-25).** All current users are dummy users. Before go-live, ask the real MMS staff what each person does and set their job presets then. The system already allows a user to hold more than one job (CONTEXT.md, access rules), so a colleague can cover an absent staff member by adding a job, and the audit log records the change. Open question (already in PROGRESS.md and CONTEXT.md): who records the delivery (IAR number, documents) and who enters the quantities, and who covers for whom. Today: the Encoder records the delivery and files, the PO Reviewer enters the quantities (`delivery.update-items`). Do NOT change permissions in 6.1b.
+13. **Delivery after full (step 6.1e, decision 57).** Built as a soft warning with the switch `delivery.allow_after_full` (env `MMS_DELIVERY_AFTER_FULL`, default true). Open question for MMS: after a PO is fully delivered, can the supplier still deliver more (over-delivery) and should it get a new IAR? If not, set `MMS_DELIVERY_AFTER_FULL=false` in `.env` and run `php artisan config:clear`. Only adding a delivery is blocked; editing, voiding and item entry are not.
 
 ---
 
@@ -95,7 +98,7 @@ These are NOT final. They are built so that MMS's final answer is a configuratio
 >
 > I'm Vvv, building the MMS Procurement Monitoring System (Laravel + React/Inertia starter kit, TypeScript, Tailwind, Spatie permissions, MySQL) for the Materials Management Section at ZCMC. I'm new to React, so explain React and Inertia parts briefly in plain words.
 >
-> Rules: (1) Work only on the step named below. Do not change completed steps except where this step needs it. (2) Give complete files with full paths, only new or changed files, and exact PowerShell commands (config:clear, route:clear, wayfinder:generate, npm run build, restart composer dev). (3) Follow CONTEXT.md; if something is missing or conflicts, ask me before guessing. (4) No email: where the flow says "email", fire a Laravel event or record a pending notice only. (5) BEFORE CODING, show me the migration summary, new permissions, routes and rules, and wait for my OK. Tell me before adding a library, a permission or a migration. (6) Tell me which existing tests your change could break, and say so if you changed an existing test. (7) The code may not be run in the session: the first test run can show small errors in the tests, I will paste the output and you fix it; say clearly what was and was not run. (8) At the end give: how to test (what to click, what I should see), the updated PROGRESS.md and CONTEXT.md (new decision numbers start at **55**) as find-and-replace blocks; PROGRESS.md and CONTEXT.md were already updated for the planning on 2026-11-25, so only add what the step builds, and the files to attach next time. (9) If the chat runs long, stop at a safe point, update PROGRESS.md with what is done and the next micro-step. (10) Environment: Windows, PowerShell, Pest with SQLite; if a test needs a real program (qpdf), use a closed temp file and skip the test when the program is missing. (11) Start your answer with: files you used, files changed, files created.
+> Rules: (1) Work only on the step named below. Do not change completed steps except where this step needs it. (2) Give complete files with full paths, only new or changed files, and exact PowerShell commands (config:clear, route:clear, wayfinder:generate, npm run build, restart composer dev). (3) Follow CONTEXT.md; if something is missing or conflicts, ask me before guessing. (4) No email: where the flow says "email", fire a Laravel event or record a pending notice only. (5) BEFORE CODING, show me the migration summary, new permissions, routes and rules, and wait for my OK. Tell me before adding a library, a permission or a migration. (6) Tell me which existing tests your change could break, and say so if you changed an existing test. (7) The code may not be run in the session: the first test run can show small errors in the tests, I will paste the output and you fix it; say clearly what was and was not run. (8) At the end give: how to test (what to click, what I should see), the updated PROGRESS.md and CONTEXT.md (new decision numbers start at **58**) as find-and-replace blocks; PROGRESS.md and CONTEXT.md were already updated for the planning on 2026-11-25, so only add what the step builds, and the files to attach next time. (9) If the chat runs long, stop at a safe point, update PROGRESS.md with what is done and the next micro-step. (10) Environment: Windows, PowerShell, Pest with SQLite; if a test needs a real program (qpdf), use a closed temp file and skip the test when the program is missing. (11) Start your answer with: files you used, files changed, files created.
 >
 > Project rules to keep: Controller -> Service -> Repository, Policies and Form Requests; rules in `App\Support\*Rule` classes used by both Policy and Service; every status change through `StatusTransition::apply()`; audit through `App\Support\Audit`; money in centavos through `App\Support\Money`; quantities through `App\Support\Quantity`; PO row locked before delivery row; derived values are computed, never stored (decision in 1.4).
 
@@ -111,7 +114,7 @@ These are NOT final. They are built so that MMS's final answer is a configuratio
 
 ### 6.1b One delivery = one IAR = one set of quantities (revision of 6.1)
 
-**Status:** Not started. Do this BEFORE 6.2.
+**Status:** DONE 2026-11-26 (kept for the record; do not run it again).
 
 **Why.** An MMS staff member who processes POs said: every delivery comes with its own documents and gets its own new IAR number. Example: Potato, ordered 1,000, first delivery 500. The second delivery must be a NEW delivery record with a NEW IAR, its own quantity and its own documents. In the system, a PO Reviewer who opens delivery #1 and clicks "Update delivered items" can add the next 500 inside delivery #1, so both rows sit under the first IAR. Decision 49 allowed this ("a line may arrive on several dates inside one delivery") and Q2 gave each row its own date. That does not match the real process. Phases 4 and 5 are NOT reopened: 5.2 already supports many deliveries per PO, each with its own IAR (reserved at save, locked afterwards, duplicates rejected) and its own files.
 
@@ -163,9 +166,7 @@ These are NOT final. They are built so that MMS's final answer is a configuratio
 
 ### 6.2 Equipment decision and property records
 
-**Status:** Not started. UNBLOCKED on the provisional defaults of section 4 (Q4 to Q7). Do after 6.1b.
-
-**Dependencies:** 6.1 and 6.1b, 5.0 (personnel directory), section 4 defaults.
+**Status:** Not started. UNBLOCKED on the provisional defaults of section 4 (Q4 to Q7). **Dependencies:** 6.1, 6.1b, 6.1c, 6.1d and 6.1e, 5.0 (personnel directory), section 4 defaults.
 
 **Attach**
 
@@ -222,8 +223,8 @@ These are NOT final. They are built so that MMS's final answer is a configuratio
 
 ## 7. Order to follow
 
-1. Section 1 "Before 6.1b" checklist.
-2. Run **6.1b** in its own chat (prompt in section 6, attachments listed there).
-3. Run **6.2** on the provisional defaults, in its own chat. Send Q4 to Q7 to MMS in the meantime, so the final answer can replace the defaults by changing the config.
+1. Section 1 "Before 6.2" checklist.
+2. (6.1b, 6.1c, 6.1d and 6.1e are done.)
+3. Run **6.2** (next) on the provisional defaults, in its own chat. Send Q4 to Q7 to MMS in the meantime, so the final answer can replace the defaults by changing the config.
 4. **6.3** waits for the blank PAR, Sub-PAR and ICS forms. If it stays blocked, the next unblocked work is Phase 7 (7.1 checklist review and MMS Head override, 7.2 DV, 7.3); read its rows in the guide's "Changes in the final flowchart" table first. Phase 6 does not block 7.1.
 5. After each step: update PROGRESS.md and CONTEXT.md, run `php artisan test`, and tick the box only after the tests pass and you have checked it in the browser.

@@ -6,6 +6,7 @@ use App\Contracts\DeliveryRepositoryInterface;
 use App\Contracts\PersonnelDirectory;
 use App\Data\PersonData;
 use App\Events\DeliveryIarWindowExceeded;
+use App\Enums\DeliveryProgress;
 use App\Enums\DeliverySignatoryRole;
 use App\Enums\DeliveryStatus;
 use App\Enums\IarNumberStatus;
@@ -17,6 +18,7 @@ use App\Models\IarNumber;
 use App\Models\PurchaseOrder;
 use App\Policies\DeliveryPolicy;
 use App\Support\Audit;
+use App\Support\DeliveryAmounts;
 use App\Support\DeliveryRule;
 use App\Support\DisplayTime;
 use App\Support\DueDate;
@@ -97,7 +99,7 @@ class DeliveryService
      * delivery progress and every PO line with its totals (computed now, never stored). Step 6.1b adds the history grouped by
      * delivery (one IAR each, with the running total of the line after each row).
      *
-     * @return array{can_record: bool, blocked_reason: string|null, rows: list<array<string, mixed>>, progress: array{value: string, label: string}|null, lines: list<array<string, mixed>>, groups: list<array<string, mixed>>}
+     * @return array{can_record: bool, blocked_reason: string|null, fully_delivered: bool, rows: list<array<string, mixed>>, progress: array{value: string, label: string}|null, lines: list<array<string, mixed>>, groups: list<array<string, mixed>>, amounts: array<string, mixed>|null}
      */
     public function panel(PurchaseOrder $po): array
     {
@@ -109,6 +111,9 @@ class DeliveryService
             'can_record' => $create->allowed(),
             // Only people who could record get told why they cannot.
             'blocked_reason' => (! $create->allowed() && Gate::allows(DeliveryPolicy::ENCODE)) ? $create->message() : null,
+            // Step 6.1e: the PO is fully delivered (derived). Taken from the progress already worked out above: no extra query.
+            // The page softens the "Record delivery" button and adds a note when this is true and the button is shown.
+            'fully_delivered' => ($totals['progress']['value'] ?? null) === DeliveryProgress::Full->value,
             'rows' => $canView
                 ? $this->deliveries->forPurchaseOrder($po->id)->map(fn (Delivery $d) => $this->row($d))->values()->all()
                 : [],
@@ -116,6 +121,8 @@ class DeliveryService
             'progress' => $totals['progress'] ?? null,
             'lines' => $totals['lines'] ?? [],
             'groups' => $totals['groups'] ?? [],
+            // Step 6.1d: typed Amounts of the deliveries that are not voided, next to the PO total (a check, never a block).
+            'amounts' => $canView ? DeliveryAmounts::forPo($po->id) : null,
         ];
     }
 

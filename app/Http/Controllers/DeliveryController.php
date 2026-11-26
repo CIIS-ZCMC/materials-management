@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\DeliveryProgress;
 use App\Http\Requests\SaveDeliveryRequest;
 use App\Http\Requests\VoidDeliveryRequest;
 use App\Models\Delivery;
@@ -11,6 +12,7 @@ use App\Services\DeliveryDocumentService;
 use App\Services\DeliveryItemService;
 use App\Services\DeliveryService;
 use App\Services\PoConsolidatedPdfService;
+use App\Support\DeliveryTotals;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,6 +23,7 @@ use Inertia\Response;
 /**
  * Step 5.2: delivery batches (one IAR each). The section gate (routes/web.php) opens the pages;
  * DeliveryPolicy decides each action (delivery.encode + DeliveryRule); DeliveryService does the work.
+ * Step 6.1e: on a fully delivered PO the record form gets the flag `fullyDelivered`; DeliveryRule can refuse it (config switch).
  * Step 6.1: the page also carries the delivered-items panel (DeliveryItemService); the update itself is DeliveryItemController.
  */
 class DeliveryController extends Controller
@@ -70,6 +73,9 @@ class DeliveryController extends Controller
         return Inertia::render('deliveries/create', [
             'purchaseOrder' => $this->poSummary($po),
             'options' => $this->service->formOptions(),
+            // Step 6.1e: true when the PO is already fully delivered (derived). The form then shows an amber banner. With the
+            // switch off (allow_after_full = false) a Full PO never gets here: the Gate above answered 403.
+            'fullyDelivered' => DeliveryTotals::progress($po->id) === DeliveryProgress::Full,
         ]);
     }
 

@@ -51,6 +51,11 @@ export type DeliveryFormOptions = {
     iar_days: number;
 };
 
+// Step 6.1e: shown (outline button + note, amber banner on the form) when a delivery is about to be recorded for a PO that is
+// already fully delivered. The server only says WHETHER (fully_delivered); the sentence lives here so the three screens match.
+export const FULLY_DELIVERED_NOTE =
+    'This PO is fully delivered. Record another delivery only if the supplier delivered more than ordered (over-delivery).';
+
 export type PoSummary = { id: number; po_number: string; supplier: string | null; po_date: string | null };
 
 // Step 6.1: the delivered items. The progress and every total are worked out by the server each time (never saved).
@@ -91,12 +96,24 @@ export type DeliveryLine = {
     rows: DeliveryItemEntry[];
 };
 
+// Step 6.1d: the typed Amount against the value of the quantities entered (quantity x unit price). A check only, never a block.
+// difference is positive text and direction says whether the TYPED Amount is higher or lower than the value (both null unless state is 'differs').
+export type AmountCheck = {
+    amount: string;
+    value: string | null; // null = no quantities entered yet
+    difference: string | null;
+    direction: 'higher' | 'lower' | null;
+    state: 'none' | 'matches' | 'differs';
+};
+
 // The delivered-items panel of the delivery page.
 export type DeliveryItemsPanelData = {
     can_update: boolean;
     locked_reason: string | null;
     can_record_another: boolean; // delivery.encode AND the PO still accepts a delivery (step 6.1b)
+    fully_delivered: boolean; // step 6.1e: the PO is fully delivered (derived); softens the Record another delivery button
     record_blocked_reason: string | null; // only for people who hold delivery.encode
+    amount_check: AmountCheck; // step 6.1d
     progress: ItemProgress;
     lines: DeliveryLine[];
 };
@@ -121,14 +138,19 @@ export type DeliveryGroup = {
     rows: DeliveryGroupRow[];
 };
 
+// Step 6.1d: the typed Amounts of the deliveries that are not voided, next to the PO total. over_by is set only when they add up to MORE than the PO total.
+export type PoAmounts = { deliveries_total: string; po_total: string; over_by: string | null; counted: number };
+
 // What the PO detail page receives for its Deliveries tab.
 export type PoDeliveriesData = {
     can_record: boolean;
     blocked_reason: string | null;
+    fully_delivered: boolean; // step 6.1e: the PO is fully delivered (derived); false for people who may not read deliveries
     rows: DeliveryRow[];
     progress: ItemProgress | null; // null for people who may not read deliveries
     lines: DeliveryLine[]; // totals only (rows are empty here)
     groups: DeliveryGroup[]; // the history, one group per delivery
+    amounts: PoAmounts | null; // step 6.1d; null for people who may not read deliveries
 };
 
 // Step 5.3: the documents panel of the delivery page. The server decides every can_* flag (DeliveryPolicy + DeliveryDocumentRule).

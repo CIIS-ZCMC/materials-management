@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import DeliveryStatusBadge from '@/components/deliveries/delivery-status-badge';
 import DeliveryDocumentsPanel from '@/components/deliveries/delivery-documents-panel';
 import DeliveryItemsPanel from '@/components/deliveries/delivery-items-panel';
-import type { DeliveryDetail, DeliveryDocumentsData, DeliveryItemsPanelData } from '@/components/deliveries/delivery-types';
+import type { AmountCheck, DeliveryDetail, DeliveryDocumentsData, DeliveryItemsPanelData } from '@/components/deliveries/delivery-types';
 import VoidDeliveryDialog from '@/components/deliveries/void-delivery-dialog';
 import Heading from '@/components/heading';
 import { formatPhp, orDash } from '@/components/purchase-orders/po-format';
@@ -22,6 +22,27 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
         <div>
             <dt className="text-sm text-muted-foreground">{label}</dt>
             <dd className="mt-0.5 min-w-0 font-medium break-words">{children}</dd>
+        </div>
+    );
+}
+
+// Step 6.1d: the typed Amount against the value of the quantities entered (quantity x unit price). A check only: nothing is blocked
+// and the typed Amount is never changed. The server works the numbers out; this only draws them.
+function AmountCheckNote({ check }: { check: AmountCheck }) {
+    return (
+        <div className={`rounded-md border px-3 py-2 text-sm ${check.state === 'differs' ? 'border-amber-500/40 bg-amber-500/10' : 'bg-muted/40'}`}>
+            <p>
+                <span className="text-muted-foreground">Value of quantities entered (quantity × unit price): </span>
+                <span className="font-medium tabular-nums">{check.value === null ? '—' : formatPhp(check.value)}</span>
+            </p>
+            {check.state === 'none' && <p className="mt-1 text-muted-foreground">No quantities entered yet.</p>}
+            {check.state === 'matches' && <p className="mt-1 text-muted-foreground">Matches the typed Amount.</p>}
+            {check.state === 'differs' && (
+                <p className="mt-1">
+                    The typed Amount is <span className="font-medium tabular-nums">{formatPhp(check.difference ?? '0.00')}</span> {check.direction} than the value of the quantities entered.
+                    This is only a check; nothing is blocked.
+                </p>
+            )}
         </div>
     );
 }
@@ -89,6 +110,8 @@ export default function DeliveryShow({ delivery, can, documents, items }: Props)
                     </Field>
                     <Field label="Recorded by">{`${orDash(delivery.created_by)}${delivery.created_at ? ` · ${delivery.created_at}` : ''}`}</Field>
                 </dl>
+
+                {!voided && <AmountCheckNote check={items.amount_check} />}
 
                 <section className="space-y-2">
                     <h3 className="text-base font-medium">Signatories</h3>

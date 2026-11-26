@@ -1,13 +1,15 @@
 import { Head, Link } from '@inertiajs/react';
 import { ArrowLeft } from 'lucide-react';
 import DeliveryForm from '@/components/deliveries/delivery-form';
+import { FULLY_DELIVERED_NOTE } from '@/components/deliveries/delivery-types';
 import type { DeliveryFormOptions, PoSummary } from '@/components/deliveries/delivery-types';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 
-type Props = { purchaseOrder: PoSummary; options: DeliveryFormOptions };
+// Step 6.1e: fullyDelivered comes from the server (DeliveryController::create): the PO is already fully delivered, so the form warns.
+type Props = { purchaseOrder: PoSummary; options: DeliveryFormOptions; fullyDelivered: boolean };
 
-export default function DeliveryCreate({ purchaseOrder, options }: Props) {
+export default function DeliveryCreate({ purchaseOrder, options, fullyDelivered }: Props) {
     return (
         <>
             <Head title={`Record delivery for PO ${purchaseOrder.po_number}`} />
@@ -20,6 +22,8 @@ export default function DeliveryCreate({ purchaseOrder, options }: Props) {
                 </Button>
 
                 <Heading title="Record delivery" description={`PO ${purchaseOrder.po_number}${purchaseOrder.supplier ? ` · ${purchaseOrder.supplier}` : ''}`} />
+
+                {fullyDelivered && <p className="max-w-3xl rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">{FULLY_DELIVERED_NOTE}</p>}
 
                 <DeliveryForm mode="create" purchaseOrder={purchaseOrder} options={options} />
             </div>
