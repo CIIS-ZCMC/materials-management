@@ -40,6 +40,7 @@ import { index as deliveries } from '@/routes/deliveries';
 import { index as dvFinance } from '@/routes/dv-finance';
 import { index as auditLog } from '@/routes/admin/audit-log';
 import { index as iarNumbers } from '@/routes/admin/iar-numbers';
+import { index as propertyNumbers } from '@/routes/admin/property-numbers';
 import { index as users } from '@/routes/admin/users';
 import { index as cancellations } from '@/routes/exceptions/cancellations';
 import { index as delays } from '@/routes/exceptions/delays';
@@ -81,6 +82,7 @@ const adminNavItems: MmsNavItem[] = [
     { title: 'Users', href: users(), icon: Users, section: 'users' },
     { title: 'Audit Log', href: auditLog(), icon: ScrollText, section: 'audit-log' },
     { title: 'IAR Numbers', href: iarNumbers(), icon: Hash, section: 'iar-numbers' },
+    { title: 'Property Numbers', href: propertyNumbers(), icon: Hash, section: 'property-numbers' },
 ];
 
 const footerNavItems: NavItem[] = [

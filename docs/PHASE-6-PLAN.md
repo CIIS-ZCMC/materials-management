@@ -1,6 +1,6 @@
 # PHASE-6-PLAN: Part 3, monitoring and property documents
 
-First written 2026-11-25 (after step 5.3). **Updated 2026-11-25 (after step 6.1 was built and checked) and 2026-11-26 (after step 6.1e: statuses, test numbers and decision numbers)** with: the 6.1b revision (one delivery = one IAR = one set of quantities), provisional defaults that unblock 6.2, and the decision to leave roles and permissions as they are until the real MMS staff are set up.
+**Updated 2026-11-27 (after step 6.2 was built and checked, and the real PAR and ICS forms were received).** First written 2026-11-25 (after step 5.3). **Updated 2026-11-25 (after step 6.1 was built and checked) and 2026-11-26 (after step 6.1e: statuses, test numbers and decision numbers)** with: the 6.1b revision (one delivery = one IAR = one set of quantities), provisional defaults that unblock 6.2, and the decision to leave roles and permissions as they are until the real MMS staff are set up.
 Replaces Phase 6 of DEVELOPMENT-GUIDE.docx (written 2026-11-12, before Phases 4 and 5 existed).
 Sources: DEVELOPMENT-GUIDE.docx, PHASE-4-PLAN-after-4.4.md, PHASE-5-PLAN.md, and the project files as they stand now (CONTEXT.md decisions 1 to 54, PROGRESS.md).
 Where this file differs from the guide, this file wins. Same use as before: one step per chat, attach CONTEXT.md and PROGRESS.md (updated after the previous step) plus the files listed.
@@ -19,14 +19,12 @@ Where this file differs from the guide, this file wins. Same use as before: one 
 | 6.1b | **Done 2026-11-26** (browser check by the user; decision 55) | One delivery = one IAR = one set of quantities. Details in 6.1b below (kept for the record). |
 | 6.1c, 6.1d | **Done 2026-11-26** (browser check by the user; decision 56) | Front-end polish (Record another delivery button, Quantity delivered column, note instead of the Update button) and amount checks (warnings only). Not described below; see PROGRESS.md. |
 | 6.1e | **Done 2026-11-26** (tests and browser check by the user; decision 57) | Recording a delivery on a PO that is already fully delivered: soft warning by default, config switch `delivery.allow_after_full` (env `MMS_DELIVERY_AFTER_FULL`) to block it. Not described below; see PROGRESS.md. |
-| 6.2 | **NEXT. Unblocked on PROVISIONAL defaults** (section 4) | Equipment decision, PAR / Sub-PAR / ICS records. Built so MMS's final answer is a config change. |
-| 6.3 | Blocked | Needs 6.2 and the blank PAR, Sub-PAR and ICS forms (scans or PDFs). |
+| 6.2 | **Done 2026-11-27** (tests and browser check by the user; decision 59) | Equipment decision and property records (PAR / Sub-PAR / ICS) on PROVISIONAL defaults kept in config. `PropertyDocumentTest` 29 passed (279 assertions). Details in 6.2 below (kept for the record). |
+| 6.3 | **NEXT. UNBLOCKED 2026-11-27** | Printable PAR, Sub-PAR, ICS. The real blank forms (Excel) were received; layouts are in 6.3 below. |
 
-Numbers to remember: 40 permissions, CONTEXT.md decisions run to 57 (the next new one is **58**), the Encoder preset holds `delivery.encode`, `delivery.upload-docs`, `documents.void`; the PO Reviewer preset holds `delivery.update-items`; the Inventory Team preset holds `equipment.decide`, `par.generate`, `ics.generate`.
+Numbers to remember: 41 permissions (`property.manage-numbers` is the new one, Admin only), CONTEXT.md decisions run to 59 (the next new one is **60**), the Encoder preset holds `delivery.encode`, `delivery.upload-docs`, `documents.void`; the PO Reviewer preset holds `delivery.update-items`; the Inventory Team preset holds `equipment.decide`, `par.generate`, `ics.generate`. Property numbers are guessed as `PAR-26-0001`, `SPAR-26-0001`, `ICS-26-0001` (config `property.numbering.prefixes`) until MMS gives the real format.
 
-**Before 6.2 (5 minutes):**
-1. Make sure the latest `PROGRESS.md` and `CONTEXT.md` (decisions up to 57) are in the project and attached.
-2. Run the full `php artisan test` once and write the numbers into PROGRESS.md (the files of Phase 6 were run one by one on 2026-11-26 and are recorded there: DeliveryFullTest 11, DeliveryTest 38, DeliveryAmountTest 12, DeliveryItemTest 27, DeliveryItemIarTest 13, DeliveryDocumentTest 24; only the 3 known kit failures are accepted in the full run).
+**Before 6.3 (5 minutes):** make sure the latest `PROGRESS.md` and `CONTEXT.md` (decisions up to 59) are in the project and attached. The full `php artisan test` was last run on 2026-11-26 (only the 3 known kit failures accepted); run it once and record the numbers in PROGRESS.md.
 
 ---
 
@@ -81,7 +79,7 @@ These are NOT final. They are built so that MMS's final answer is a configuratio
 | Q5 | Who generates PAR / Sub-PAR / ICS | The Inventory Team (`equipment.decide`, `par.generate`, `ics.generate`, already in its preset). | A permission can be added to any user at any time. |
 | Q6 | Where the Sub-PAR "actual user" comes from | The personnel directory, role `end-user`. | One constant. |
 | Q7 | Numbering of PAR, Sub-PAR, ICS | Reuse the IAR pattern of step 5.1: the system suggests the next number, staff confirm or edit, the database rejects duplicates, voided numbers are kept and never reused, the Admin sets the starting counter. One series per document type per year. Prefix, padding and the series list live in config. | Config only. The session must show the format and ask before building it. |
-| Q8 | Printed forms stored or only generated? Paper? | Generated and downloaded only (as the printed PO, decision 40), paper `bond` as in `print.paper` (`a4` available). | One config value. Only matters for 6.3. |
+| Q8 | (still provisional) Printed forms stored or only generated? Paper? | Generated and downloaded only (as the printed PO, decision 40), paper `bond` as in `print.paper` (`a4` available). | One config value. Only matters for 6.3. |
 
 **Safeguards that apply to every provisional default**
 1. **Snapshot on each record.** Each property record stores the unit price, the document type and band that applied, and a `rule_provisional` marker. When MMS changes the rule, existing records stay as they are; only new decisions use the new limits.
@@ -166,7 +164,7 @@ These are NOT final. They are built so that MMS's final answer is a configuratio
 
 ### 6.2 Equipment decision and property records
 
-**Status:** Not started. UNBLOCKED on the provisional defaults of section 4 (Q4 to Q7). **Dependencies:** 6.1, 6.1b, 6.1c, 6.1d and 6.1e, 5.0 (personnel directory), section 4 defaults.
+**Status:** DONE 2026-11-27 (decision 59; PropertyDocumentTest 29 passed, 279 assertions; browser check by the user: working). Built on the provisional defaults of section 4 (Q4 to Q7); the prompt below is kept for the record. **Dependencies:** 6.1, 6.1b, 6.1c, 6.1d and 6.1e, 5.0 (personnel directory), section 4 defaults.
 
 **Attach**
 
@@ -198,22 +196,34 @@ These are NOT final. They are built so that MMS's final answer is a configuratio
 
 ### 6.3 Printable PAR, Sub-PAR, ICS
 
-**Status:** Blocked: needs 6.2 and the blank forms (scans or PDFs, sanitized).
+**Status:** NEXT. UNBLOCKED 2026-11-27: 6.2 is done and the real blank forms were received.
 
-**Dependencies:** 6.2, the hospital's blank PAR, Sub-PAR and ICS forms, Q8 (default: generated and downloaded only, paper `bond`).
+**Dependencies:** 6.2 (decision 59), the two Excel forms, Q8 (default: generated and downloaded only, paper A4 because the forms are set to A4; `print.paper` is `bond` for the PO, so the session proposes a per-form value).
+
+**What the real forms look like** (read from the Excel files; the session must open them again)
+
+- **PAR** (`ZCMC-F-MM-01_-__PAR_Rev2.xlsx`, sheet "SubPAR", print area A1:I52, portrait, A4, 30 merged ranges). Header: Republic of the Philippines / Department of Health / ZAMBOANGA CITY MEDICAL CENTER / Dr. D. Evangelista St., Sta. Catalina, Zamboanga City, 7000. Title PROPERTY ACKNOWLEDGMENT RECEIPT. Lines: Entity Name (ZAMBOANGA CITY MEDICAL CENTER), Fund Cluster, PAR No. Table: Quantity | Unit | Description | Property Number | Date Acquired | Amount, 22 item rows (rows 15 to 36). Bottom: "Received by" and "Issued by", the PAR signature block (Signature of Accountable Officer Over Printed Name, Position/Office; issuer printed as OMIBERTO P. PABLO JR / Supervising Administrative Officer), a Sub-PAR block (signature, Position/Office, Date). Footer: (Adopted from Goverment Accounting Manual : Appendix 71), spelling as on the form.
+- **ICS** (`ZCMC-F-MM-04_-_ICS_Form_Rev2.xlsx`, sheet "Sub-ICS Template", print area A1:L62, portrait, A4, 96 merged ranges). Same header. Title INVENTORY CUSTODIAN SLIP. Lines: Entity Name, Fund Cluster, ICS No. Table: Quantity | Unit | Amount (Unit Cost, Total Cost) | Description | Inventory Item No. | Est. Useful Life (Year), with an "x--x--x" end marker after the last row. A Note line. "Received by" with the ICS signature block, "Received from" OMIBERTO P. PABLO JR. / SUPERVISING ADMINISTRATIVE OFFICER - MMS, and a "Sub-ICS" signature block. Footer: (Adopted from Goverment Accounting Manual: Appendix 59).
+- **Data the system does not hold:** Fund Cluster, Property Number, Inventory Item No., Est. Useful Life. Print them EMPTY (never invented) unless MMS names the source. Date Acquired is probably the delivery date (confirm). Quantity, unit, description, unit cost, total cost, document number, Sub-PAR user (name, position) and the issuer come from the 6.2 records and the PO line.
+- **Open points to ask MMS** (the session asks me only if it blocks the build, and prints what it assumed): is the PAR and Sub-PAR one sheet printed twice (the sheet is called "SubPAR") or two layouts; one form per delivered line (as built in 6.2) or per unit; the real number format; where the four empty fields come from; whether signed scans are attached later.
 
 **Attach**
 
-- CONTEXT.md decisions 32, 33, 40 and 45 and the latest `docs/PO-PRINT-SPIKE.md`
-- Blank sanitized scans or PDFs of the three forms (no real names or numbers)
+- CONTEXT.md (decisions 32, 33, 40, 45 and 59), PROGRESS.md, this PHASE-6-PLAN.md, the latest `docs/PO-PRINT-SPIKE.md`
+- **The two real Excel forms** (the PDFs of them too if you can export, so the layout can be compared)
 - The 4.6 print code: `app/Support/Print/*` (Form13, Paginator, Renderer, Html, Fonts, Paper, Config and the others), `PoPrintService.php`, `PoPrintController.php`, `PoPrintRule.php`, `PurchaseOrderPolicy::printOrder`, `AmountInWords.php`, the print tests, the fonts folder reference, `public/images/zcmc.png`
-- The property document models and service from 6.2, `config/mms.php` (the `print.*` keys), `config/mms_access.php`, `routes/web.php`, the property page where the Print button will sit
+- The 6.2 files: `PropertyDocument.php`, `PropertyDecision.php`, `PropertyDocumentType.php`, `PropertyDocumentRule.php`, `PropertyPolicy.php`, `PropertyDocumentService.php`, `PropertyOverviewService.php`, `PropertyDocumentController.php`, `resources/js/pages/property-documents/show.tsx`
+- `config/mms.php` (the `print.*` and `property.*` keys), `config/mms_access.php`, `routes/web.php`
 
 **Prompt**
 
-> Step 6.3. Build print-ready PAR, Sub-PAR and ICS that match the attached blank forms (layout, fields, signature areas), reusing the dompdf stack of step 4.6 (fonts, `Renderer`, `Html::lines()` with a fixed line height, own pagination). Do not add a new library. Fill the fields from the system data; missing values print empty, never invented; no budget stamp.
+> Step 6.3. Build print-ready PAR, Sub-PAR and ICS that match the two attached real Excel forms (layout, fields, signature areas, header, footer text), reusing the dompdf stack of step 4.6 (fonts, `Renderer`, `Html::lines()` with a fixed line height, own pagination). Do not add a new library. Fill the fields from the system data; the fields the system does not hold (Fund Cluster, Property Number, Inventory Item No., Est. Useful Life) print empty, never invented; the issuer name and position are config values. No budget stamp.
 >
-> Approvals I give: paper size = bond (config value, `a4` available); the printed document is only generated and downloaded, as decision 40 (provisional until MMS confirms, Q8); permission = reuse `par.generate` and `ics.generate`. Audit every generation with a new event (for example `property_printed`, labels in `config/mms.php`), subject the document. Tell me which existing tests could break. Show me a description or screenshot of how each page prints.
+> First open the Excel forms and show me, per form, the fields you will fill, the fields left empty, and how a PAR and its Sub-PAR are laid out (one or two pages). Ask only if it blocks the build; otherwise state your assumption.
+>
+> Approvals I give: paper A4 as the forms are set (a config value); the printed document is only generated and downloaded, as decision 40 (provisional until MMS confirms, Q8); permission = reuse `par.generate` and `ics.generate` (the Print button follows the same permission as issuing that type). Audit every generation with a new event (for example `property_printed`, labels in `config/mms.php`), subject the document. Voided documents are refused. Tell me which existing tests could break. Show me a description or screenshot of how each page prints.
+>
+> BEFORE CODING, show me the new routes, permissions (if any), config keys and rules, and wait for my OK. New decision numbers start at 60.
 >
 > Tests: the generated PDF contains the document number, item, unit price, total and the signer names; page count for a long item list (use `App\Support\Qpdf::pageCount`); 403 for roles without the permission; a voided or non-existent document is refused.
 >
@@ -223,8 +233,8 @@ These are NOT final. They are built so that MMS's final answer is a configuratio
 
 ## 7. Order to follow
 
-1. Section 1 "Before 6.2" checklist.
+1. Section 1 "Before 6.3" checklist.
 2. (6.1b, 6.1c, 6.1d and 6.1e are done.)
-3. Run **6.2** (next) on the provisional defaults, in its own chat. Send Q4 to Q7 to MMS in the meantime, so the final answer can replace the defaults by changing the config.
-4. **6.3** waits for the blank PAR, Sub-PAR and ICS forms. If it stays blocked, the next unblocked work is Phase 7 (7.1 checklist review and MMS Head override, 7.2 DV, 7.3); read its rows in the guide's "Changes in the final flowchart" table first. Phase 6 does not block 7.1.
+3. **6.2 is done** (2026-11-27). Send Q4 to Q8 and the open points in 6.3 to MMS, so the final answers can replace the defaults by changing the config.
+4. Run **6.3** (next) in its own chat, with the real forms attached. If it gets blocked, the next unblocked work is Phase 7 (7.1 checklist review and MMS Head override, 7.2 DV, 7.3); read its rows in the guide's "Changes in the final flowchart" table first. Phase 6 does not block 7.1.
 5. After each step: update PROGRESS.md and CONTEXT.md, run `php artisan test`, and tick the box only after the tests pass and you have checked it in the browser.

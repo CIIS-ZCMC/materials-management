@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Contracts\DeliveryRepositoryInterface;
 use App\Events\DeliveryIarWindowExceeded;
+use App\Enums\DeliveryItemStatus;
 use App\Enums\DeliveryProgress;
 use App\Enums\DeliverySignatoryRole;
 use App\Enums\DeliveryStatus;
@@ -11,6 +12,7 @@ use App\Enums\IarNumberStatus;
 use App\Enums\IarSeriesType;
 use App\Exceptions\InvalidStatusTransition;
 use App\Models\Delivery;
+use App\Models\DeliveryItem;
 use App\Models\DeliverySignatory;
 use App\Models\IarNumber;
 use App\Models\PurchaseOrder;
@@ -21,6 +23,7 @@ use App\Support\DeliveryRule;
 use App\Support\DisplayTime;
 use App\Support\DueDate;
 use App\Support\Money;
+use App\Support\Quantity;
 use App\Support\StatusTransition;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -90,8 +93,45 @@ class DeliveryService
      */
     public function paginate(array $filters, int $perPage = 15): LengthAwarePaginator
     {
-        return $this->deliveries->paginateFiltered($filters, $perPage)
-            ->through(fn (Delivery $delivery) => $this->row($delivery));
+        $page = $this->deliveries->paginateFiltered($filters, $perPage);
+
+        // One query for the whole page: what each delivery carried (no query per row).
+        $carried = $this->carriedItems($page->getCollection()->pluck('id')->all());
+
+        return $page->through(fn (Delivery $delivery) => [
+            ...$this->row($delivery),
+            'delivered_items' => $carried[$delivery->id] ?? [],
+        ]);
+    }
+
+    /**
+     * The ACTIVE delivered-item rows of the given deliveries, for the "Quantity delivered" column of the deliveries list.
+     * A voided row does not count (and a voided delivery has none active), the same as every total.
+     *
+     * @param  list<int>  $deliveryIds
+     * @return array<int, list<array{id: int, quantity: string, unit: string|null, description: string|null}>>
+     */
+    private function carriedItems(array $deliveryIds): array
+    {
+        if ($deliveryIds === []) {
+            return [];
+        }
+
+        return DeliveryItem::query()
+            ->with('poItem.unit:id,name')
+            ->whereIn('delivery_id', $deliveryIds)
+            ->where('status', DeliveryItemStatus::Active->value)
+            ->orderBy('delivered_on')
+            ->orderBy('id')
+            ->get()
+            ->groupBy('delivery_id')
+            ->map(fn ($rows) => $rows->map(fn ($row): array => [
+                'id' => $row->id,
+                'quantity' => Quantity::format(Quantity::thousandths($row->quantity)),
+                'unit' => $row->poItem?->unit?->name,
+                'description' => $row->poItem?->description,
+            ])->values()->all())
+            ->all();
     }
 
     /**

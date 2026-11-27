@@ -6,6 +6,7 @@ import type { ChecklistData } from '@/components/purchase-orders/po-document-typ
 import PoDocumentUploadForm from '@/components/purchase-orders/po-document-upload-form';
 import type { UploadType } from '@/components/purchase-orders/po-document-upload-form';
 import { orDash } from '@/components/purchase-orders/po-format';
+import { Notice, SectionCard } from '@/components/section-card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -139,7 +140,6 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
         }
     }
 
-    const previewRow = rows.find((row) => row.id === previewId) ?? null;
     // The arrows move the PO's own files only (a delivery file's place follows its delivery, step 5.3).
     const activeIds = rows.filter((row) => row.status === 'active' && row.delivery_id === null).map((row) => row.id);
 
@@ -357,7 +357,7 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
     // The void / replace form. It opens INSIDE the row it belongs to, so the person never loses sight of which file it is about.
     function renderCorrectionForm(c: NonNullable<Correction>) {
         return (
-            <form onSubmit={submitCorrection} className="space-y-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-4">
+            <form onSubmit={submitCorrection} className="space-y-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
                 <p className="min-w-0 break-words text-sm font-medium">
                     {c.kind === 'void' ? 'Void' : 'Replace'}: {c.name}
                 </p>
@@ -416,7 +416,7 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
     }
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 md:space-y-6">
             {documents.locked_reason && <p className="text-sm text-muted-foreground">{documents.locked_reason}</p>}
 
             {documents.can_upload && (
@@ -431,7 +431,7 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
                 />
             )}
 
-            {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+            {actionError && <Notice tone="danger">{actionError}</Notice>}
 
             {/* 1. Document types: the checklist (sample list) and the type filter. Information only; Submit never waits for it. */}
             <PoDocumentTypesPanel
@@ -461,7 +461,7 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
 
             {/* The documents changed but the last rebuild failed. Said to everyone, because the Reviewer must not trust an out-of-date PDF. */}
             {consolidated.stale && (
-                <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
                     <p className="font-medium">The combined PDF is out of date</p>
                     <p className="text-muted-foreground">
                         The documents were changed, but the combined PDF could not be rebuilt
@@ -477,10 +477,11 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
             )}
 
             {/* 2. Page index. Each document is one card; its original file, and the void / replace form, open INSIDE that card. */}
-            <section className="space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-base font-medium">Page index</h3>
-                    {typeOptions.length > 0 && (
+            <SectionCard
+                title="Page index"
+                description={rows.length > 0 ? `${rows.length} ${rows.length === 1 ? 'document' : 'documents'}, in page order of the combined PDF.` : 'Every uploaded document with its page numbers.'}
+                actions={
+                    typeOptions.length > 0 && (
                         <div className="flex items-center gap-2">
                             <Label htmlFor="po-doc-type-filter" className="text-sm">
                                 Show
@@ -499,23 +500,24 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
                                 ))}
                             </select>
                         </div>
-                    )}
-                </div>
+                    )
+                }
+            >
                 {reorderLocked && documents.can_reorder && (
                     <p className="text-sm text-muted-foreground">Showing {typeCounts.get(activeFilter)?.label} only. Show all documents to change the order.</p>
                 )}
 
                 {shownRows.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No documents uploaded yet.</p>
+                    <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">No documents uploaded yet.</p>
                 ) : (
-                    <ol className="space-y-2">
+                    <ol className="space-y-3">
                         {shownRows.map((d) => {
                             const isOpen = (d.delivery_id === null ? documents.can_view : documents.can_view_delivery_files) && previewId === d.id;
                             const isCorrecting = correction?.id === d.id;
                             const pages = pagesLabel(d);
 
                             return (
-                                <li key={d.id} className={`space-y-3 rounded-md border p-3 ${isOpen ? 'border-primary/60 bg-muted/20' : ''}`}>
+                                <li key={d.id} className={`space-y-3 rounded-lg border bg-background p-3 ${isOpen ? 'border-primary/60' : ''}`}>
                                     <div className="flex flex-wrap items-start gap-3">
                                         <div className="min-w-14 rounded-md bg-muted px-2 py-1 text-center text-xs font-medium tabular-nums">
                                             <span className="block text-muted-foreground">{d.page_from !== null && d.page_from !== d.page_to ? 'Pages' : 'Page'}</span>
@@ -534,7 +536,7 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
                                         {d.status === 'void' ? <Badge variant="outline">Void</Badge> : <Badge variant="secondary">Active</Badge>}
                                     </div>
 
-                                    {renderActions(d)}
+                                    <div className="border-t pt-3">{renderActions(d)}</div>
 
                                     {isCorrecting && correction && renderCorrectionForm(correction)}
 
@@ -566,28 +568,26 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
                         })}
                     </ol>
                 )}
-            </section>
+            </SectionCard>
 
             {/* 3. The combined PDF, last: every active document, in page order. "Go to page N" scrolls down to it. */}
             {documents.can_view_consolidated && (
-                <section ref={viewerSection} className="scroll-mt-4 space-y-2 rounded-md border p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="min-w-0">
-                            <h3 className="text-base font-medium">
-                                Combined PDF
-                                {viewerPage !== null && viewerPage > 1 && (
-                                    <span className="ml-2 text-sm font-normal text-muted-foreground">opened at page {viewerPage}</span>
-                                )}
-                            </h3>
-                            {consolidated.exists && (
-                                <p className="text-sm text-muted-foreground">
-                                    {consolidated.pages ?? 0} {consolidated.pages === 1 ? 'page' : 'pages'}
-                                    {consolidated.built_at ? ` · built ${consolidated.built_at}` : ''}
-                                </p>
-                            )}
-                        </div>
-                        {consolidated.exists && (
-                            <div className="flex flex-wrap gap-2">
+                <SectionCard
+                    sectionRef={viewerSection}
+                    title={
+                        <>
+                            Combined PDF
+                            {viewerPage !== null && viewerPage > 1 && <span className="ml-2 text-sm font-normal text-muted-foreground">opened at page {viewerPage}</span>}
+                        </>
+                    }
+                    description={
+                        consolidated.exists
+                            ? `${consolidated.pages ?? 0} ${consolidated.pages === 1 ? 'page' : 'pages'}${consolidated.built_at ? ` · built ${consolidated.built_at}` : ''}`
+                            : 'Every active document in page order.'
+                    }
+                    actions={
+                        consolidated.exists && (
+                            <>
                                 <Button asChild size="sm" variant="outline">
                                     <a href={viewerUrl} target="_blank" rel="noopener noreferrer">
                                         <ExternalLink className="size-4" /> Open in new tab
@@ -603,10 +603,10 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
                                         <RefreshCw className="size-4" /> Rebuild
                                     </Button>
                                 )}
-                            </div>
-                        )}
-                    </div>
-
+                            </>
+                        )
+                    }
+                >
                     {consolidated.exists ? (
                         <>
                             <iframe
@@ -622,15 +622,15 @@ export default function PoDocumentsPanel({ poId, isDraft, documents }: Props) {
                             {rows.some((row) => row.status === 'active') ? 'The combined PDF is not built yet.' : 'No documents uploaded yet.'}
                         </p>
                     )}
-                </section>
+                </SectionCard>
             )}
 
             {/* Hint only. The Submit to Reviewer button is in the page header (PoSubmitButton), on every tab. */}
             {documents.can_submit && (
-                <p className="text-sm text-muted-foreground">
+                <Notice tone="info">
                     Ready to send this PO to the PO Reviewer? Check the combined PDF above, then use Submit to Reviewer at the top of the page. After you submit,
                     the PO becomes Uploaded and a file can no longer be removed (a wrong document is voided with a reason).
-                </p>
+                </Notice>
             )}
         </div>
     );

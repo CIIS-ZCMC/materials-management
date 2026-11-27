@@ -7,14 +7,14 @@ import type { DeliveryGroup, DeliveryGroupRow, DeliveryRow, PoDeliveriesData } f
 import { formatPhp, orDash } from '@/components/purchase-orders/po-format';
 import ResponsiveList from '@/components/responsive-list';
 import type { ListColumn } from '@/components/responsive-list';
+import { Notice, SectionCard, Stat } from '@/components/section-card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
 const MAX_SHOWN = 3;
 
 // Step 6.1c: what each delivery (IAR) carried. Only ACTIVE rows count and a voided delivery carries nothing, the same as the totals.
-// Taken from the history groups the server already sends, so nothing is added up in the browser: a delivery holds one active quantity
-// per PO line, and an older delivery that holds two for one line (saved before step 6.1b) simply shows both.
+// Taken from the history groups the server already sends, so nothing is added up in the browser.
 function carriedByDelivery(groups: DeliveryGroup[]): Map<number, DeliveryGroupRow[]> {
     const carried = new Map<number, DeliveryGroupRow[]>();
 
@@ -93,131 +93,130 @@ function buildColumns(carried: Map<number, DeliveryGroupRow[]>, withLine: boolea
     ];
 }
 
-// The Deliveries tab of the PO page (step 5.2). The server decides whether "Record delivery" is drawn
-// (delivery.encode, PO verified and not closed); hiding the button is for convenience only.
-// Step 6.1 adds the delivered items: the PO's progress and, per PO line, the totals. Step 6.1b: the history is grouped by delivery
-// (one IAR each, with its status), so 500 / 300 / 200 read as three IARs, each row with the line's running total after it.
-// Voided rows keep their reason. Read-only here; the update is made on the delivery page.
-// Step 6.1d: above the list, the total of the typed Amounts of all deliveries (voided ones not counted) next to the PO total, with a warning when it is over.
-// Step 6.1e: when the PO is fully delivered the "Record delivery" button is an OUTLINE button with a note (nothing is blocked unless the
-// server switch allow_after_full is off; then can_record is false and the button is not drawn at all).
-// Step 6.1c: the list has a "Quantity delivered" column, so each IAR shows how much it carried (the PO line is named only when the PO has
-// more than one line).
+// The Deliveries tab of the PO page (step 5.2). The server decides whether "Record delivery" is drawn; hiding the button is for convenience only.
+// Step 6.1 / 6.1b / 6.1c / 6.1d / 6.1e: see the notes in the earlier version; the data and rules are unchanged.
+// Layout: three separate cards, each with its own header: 1) the deliveries (with the amount check), 2) the delivered items per PO line,
+// 3) the history, one block per delivery (one IAR each).
 export default function PoDeliveriesPanel({ poId, deliveries }: { poId: number; deliveries: PoDeliveriesData }) {
     const columns = buildColumns(carriedByDelivery(deliveries.groups), deliveries.lines.length > 1);
+    const amounts = deliveries.amounts;
 
     return (
-        <section className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-base font-medium">Deliveries</h3>
-                {deliveries.can_record && (
-                    <Button asChild size="sm" variant={deliveries.fully_delivered ? 'outline' : 'default'}>
-                        <Link href={`/deliveries/create?purchase_order=${poId}`}>
-                            <Plus className="size-4" /> Record delivery
-                        </Link>
-                    </Button>
-                )}
-            </div>
+        <div className="space-y-4 md:space-y-6">
+            {/* 1. The deliveries */}
+            <SectionCard
+                title="Deliveries"
+                description="One record per delivery batch (one IAR)."
+                actions={
+                    deliveries.can_record && (
+                        <Button asChild size="sm" variant={deliveries.fully_delivered ? 'outline' : 'default'}>
+                            <Link href={`/deliveries/create?purchase_order=${poId}`}>
+                                <Plus className="size-4" /> Record delivery
+                            </Link>
+                        </Button>
+                    )
+                }
+            >
+                {deliveries.blocked_reason && <p className="text-sm text-muted-foreground">{deliveries.blocked_reason}</p>}
 
-            {deliveries.blocked_reason && <p className="text-sm text-muted-foreground">{deliveries.blocked_reason}</p>}
+                {deliveries.can_record && deliveries.fully_delivered && <Notice tone="warning">{FULLY_DELIVERED_NOTE}</Notice>}
 
-            {deliveries.can_record && deliveries.fully_delivered && (
-                <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">{FULLY_DELIVERED_NOTE}</p>
-            )}
-
-            {deliveries.amounts && deliveries.amounts.counted > 0 && (
-                <div className={`rounded-md border px-3 py-2 text-sm ${deliveries.amounts.over_by ? 'border-amber-500/40 bg-amber-500/10' : 'bg-muted/40'}`}>
-                    <p>
-                        Total of all deliveries: <span className="font-medium tabular-nums">{formatPhp(deliveries.amounts.deliveries_total)}</span> · PO total:{' '}
-                        <span className="font-medium tabular-nums">{formatPhp(deliveries.amounts.po_total)}</span>{' '}
-                        <span className="text-muted-foreground">
-                            ({deliveries.amounts.counted} {deliveries.amounts.counted === 1 ? 'delivery' : 'deliveries'}, voided ones not counted)
-                        </span>
-                    </p>
-                    {deliveries.amounts.over_by && (
-                        <p className="mt-1">
-                            The deliveries add up to <span className="font-medium tabular-nums">{formatPhp(deliveries.amounts.over_by)}</span> more than the PO total. Check the delivery amounts. This is
-                            only a check; nothing is blocked.
-                        </p>
-                    )}
-                </div>
-            )}
-
-            <ResponsiveList columns={columns} rows={deliveries.rows} rowKey={(d) => d.id} emptyMessage="No deliveries recorded for this PO yet." />
-
-            {deliveries.progress && (
-                <div className="space-y-3 pt-2">
-                    <div>
-                        <h3 className="text-base font-medium">Delivered items</h3>
-                        <p className="text-sm text-muted-foreground">
-                            PO progress: <span className="font-medium text-foreground">{deliveries.progress.label}</span>. Totals count every delivery of this PO. To update them, open a delivery.
-                        </p>
-                    </div>
-
-                    <ResponsiveList columns={lineColumns} rows={deliveries.lines} rowKey={(l) => l.po_item_id} emptyMessage="This PO has no lines." />
-
+                {amounts && amounts.counted > 0 && (
                     <div className="space-y-2">
-                        <h4 className="text-sm font-medium">History by delivery (one IAR each)</h4>
-                        {deliveries.groups.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">No deliveries recorded for this PO yet.</p>
-                        ) : (
-                            deliveries.groups.map((group) => (
-                                <div key={group.delivery_id} className="rounded-md border">
-                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-2 text-sm">
-                                        <Link href={`/deliveries/${group.delivery_id}`} className="font-medium underline-offset-4 hover:underline">
-                                            IAR {group.iar_number}
-                                        </Link>
-                                        <DeliveryStatusBadge status={group.status} />
-                                        <span className="text-muted-foreground tabular-nums">Received {group.date_received}</span>
-                                    </div>
-
-                                    {group.rows.length === 0 ? (
-                                        <p className="px-3 py-2 text-sm text-muted-foreground">No quantities entered for this IAR yet.</p>
-                                    ) : (
-                                        <ul className="divide-y text-sm">
-                                            {group.rows.map((row) => {
-                                                const voided = row.status.value === 'void';
-
-                                                return (
-                                                    <li key={row.id} className="space-y-1 px-3 py-2">
-                                                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                                                            <span className="font-medium break-words">{row.description ?? '—'}</span>
-                                                            <span className={`tabular-nums ${voided ? 'text-muted-foreground line-through' : 'font-medium'}`}>
-                                                                {row.quantity}
-                                                                {row.unit ? ` ${row.unit}` : ''}
-                                                            </span>
-                                                            {voided && <Badge variant="destructive">Voided</Badge>}
-                                                            {row.over_delivery && (
-                                                                <Badge variant="outline" className="border-amber-500/60 text-amber-700 dark:text-amber-400">
-                                                                    Over-delivery
-                                                                </Badge>
-                                                            )}
-                                                            {row.running_total !== null && (
-                                                                <span className="text-muted-foreground">
-                                                                    Total after this IAR: <span className="font-medium text-foreground tabular-nums">{row.running_total}</span>
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <p className="text-xs text-muted-foreground">
-                                                            Entered by {orDash(row.recorded_by)} · {orDash(row.recorded_at)}
-                                                        </p>
-                                                        {row.over_delivery && row.over_delivery_reason && <p className="text-xs break-words">Over-delivery reason: {row.over_delivery_reason}</p>}
-                                                        {voided && (
-                                                            <p className="text-xs break-words">
-                                                                Voided: {row.void_reason ?? 'No reason was recorded.'} · {orDash(row.voided_by)} · {orDash(row.voided_at)}
-                                                            </p>
-                                                        )}
-                                                    </li>
-                                                );
-                                            })}
-                                        </ul>
-                                    )}
-                                </div>
-                            ))
+                        <div className="grid gap-3 sm:grid-cols-3">
+                            <Stat label="Total of all deliveries">{formatPhp(amounts.deliveries_total)}</Stat>
+                            <Stat label="PO total">{formatPhp(amounts.po_total)}</Stat>
+                            <Stat label="Deliveries counted">
+                                {amounts.counted} <span className="text-xs font-normal text-muted-foreground">(voided ones not counted)</span>
+                            </Stat>
+                        </div>
+                        {amounts.over_by && (
+                            <Notice tone="warning">
+                                The deliveries add up to <span className="font-medium tabular-nums">{formatPhp(amounts.over_by)}</span> more than the PO total. Check the delivery amounts.
+                                This is only a check; nothing is blocked.
+                            </Notice>
                         )}
                     </div>
-                </div>
+                )}
+
+                <ResponsiveList columns={columns} rows={deliveries.rows} rowKey={(d) => d.id} emptyMessage="No deliveries recorded for this PO yet." />
+            </SectionCard>
+
+            {deliveries.progress && (
+                <>
+                    {/* 2. Delivered items per PO line */}
+                    <SectionCard
+                        title="Delivered items"
+                        description="Totals count every delivery of this PO. To update them, open a delivery."
+                        actions={<Badge variant="secondary">{deliveries.progress.label}</Badge>}
+                    >
+                        <ResponsiveList columns={lineColumns} rows={deliveries.lines} rowKey={(l) => l.po_item_id} emptyMessage="This PO has no lines." />
+                    </SectionCard>
+
+                    {/* 3. History by delivery */}
+                    <SectionCard title="History by delivery" description="One IAR each, with the line's running total after every row.">
+                        {deliveries.groups.length === 0 ? (
+                            <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">No deliveries recorded for this PO yet.</p>
+                        ) : (
+                            <div className="space-y-3">
+                                {deliveries.groups.map((group) => (
+                                    <div key={group.delivery_id} className="overflow-hidden rounded-lg border bg-background">
+                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b bg-muted/30 px-3 py-2 text-sm">
+                                            <Link href={`/deliveries/${group.delivery_id}`} className="font-semibold underline-offset-4 hover:underline">
+                                                IAR {group.iar_number}
+                                            </Link>
+                                            <DeliveryStatusBadge status={group.status} />
+                                            <span className="text-muted-foreground tabular-nums">Received {group.date_received}</span>
+                                        </div>
+
+                                        {group.rows.length === 0 ? (
+                                            <p className="px-3 py-3 text-sm text-muted-foreground">No quantities entered for this IAR yet.</p>
+                                        ) : (
+                                            <ul className="divide-y text-sm">
+                                                {group.rows.map((row) => {
+                                                    const voided = row.status.value === 'void';
+
+                                                    return (
+                                                        <li key={row.id} className="space-y-1 px-3 py-2">
+                                                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                                                                <span className="font-medium break-words">{row.description ?? '—'}</span>
+                                                                <span className={`tabular-nums ${voided ? 'text-muted-foreground line-through' : 'font-medium'}`}>
+                                                                    {row.quantity}
+                                                                    {row.unit ? ` ${row.unit}` : ''}
+                                                                </span>
+                                                                {voided && <Badge variant="destructive">Voided</Badge>}
+                                                                {row.over_delivery && (
+                                                                    <Badge variant="outline" className="border-amber-500/60 text-amber-700 dark:text-amber-400">
+                                                                        Over-delivery
+                                                                    </Badge>
+                                                                )}
+                                                                {row.running_total !== null && (
+                                                                    <span className="text-muted-foreground">
+                                                                        Total after this IAR: <span className="font-medium text-foreground tabular-nums">{row.running_total}</span>
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-xs text-muted-foreground">
+                                                                Entered by {orDash(row.recorded_by)} · {orDash(row.recorded_at)}
+                                                            </p>
+                                                            {row.over_delivery && row.over_delivery_reason && <p className="text-xs break-words">Over-delivery reason: {row.over_delivery_reason}</p>}
+                                                            {voided && (
+                                                                <p className="text-xs break-words">
+                                                                    Voided: {row.void_reason ?? 'No reason was recorded.'} · {orDash(row.voided_by)} · {orDash(row.voided_at)}
+                                                                </p>
+                                                            )}
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </SectionCard>
+                </>
             )}
-        </section>
+        </div>
     );
 }

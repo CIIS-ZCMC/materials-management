@@ -31,6 +31,7 @@ class MmsAccess
         'equipment' => 'Equipment',
         'par' => 'PAR / Sub-PAR',
         'ics' => 'ICS',
+        'property' => 'Property numbers',
         'dv' => 'DV',
         'finance' => 'Finance',
         'cancel' => 'Cancellation',

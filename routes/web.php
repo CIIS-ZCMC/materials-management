@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\IarNumberController;
+use App\Http\Controllers\Admin\PropertyNumberController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\DeliveryController;
 use App\Http\Controllers\DeliveryDocumentController;
@@ -11,6 +12,7 @@ use App\Http\Controllers\ItemController;
 use App\Http\Controllers\PersonnelController;
 use App\Http\Controllers\PoDocumentController;
 use App\Http\Controllers\PoPrintController;
+use App\Http\Controllers\PropertyDocumentController;
 use App\Http\Controllers\PurchaseOrderController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\UnitController;
@@ -188,9 +190,23 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::post('{item}/void', 'void')->name('void');
         });
 
-    Route::inertia('property-documents', 'property-documents/index')
-        ->middleware('can:section.property-documents')
-        ->name('property-documents.index');
+    // Step 6.2: equipment decision and property records (PAR / Sub-PAR / ICS). The section gate opens the pages;
+    // PropertyPolicy decides each action (equipment.decide, par.generate, ics.generate) and PropertyDocumentRule the
+    // state of the line. 'number-suggestion' must stay above the other GET routes.
+    Route::middleware('can:section.property-documents')
+        ->controller(PropertyDocumentController::class)
+        ->prefix('property-documents')
+        ->where(['item' => '[0-9]+', 'decision' => '[0-9]+', 'document' => '[0-9]+'])
+        ->name('property-documents.')
+        ->group(function () {
+            Route::get('/', 'index')->name('index');
+            Route::get('number-suggestion', 'numberSuggestion')->name('number-suggestion');
+            Route::get('items/{item}', 'show')->name('show');
+            Route::post('items/{item}/decision', 'decide')->name('decide');
+            Route::post('decisions/{decision}/void', 'voidDecision')->name('decisions.void');
+            Route::post('decisions/{decision}/documents', 'issue')->name('documents.issue');
+            Route::post('documents/{document}/void', 'voidDocument')->name('documents.void');
+        });
 
     Route::inertia('dv-finance', 'dv-finance/index')
         ->middleware('can:section.dv-finance')
@@ -240,6 +256,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
             ->group(function () {
                 Route::get('iar-numbers', 'index')->name('iar-numbers.index');
                 Route::put('iar-numbers/counter', 'setCounter')->name('iar-numbers.counter');
+            });
+
+        // Step 6.2: PAR / Sub-PAR / ICS number counters (Admin). PropertySeriesPolicy and SetPropertyCounterRequest
+        // check property.manage-numbers.
+        Route::middleware('can:section.property-numbers')
+            ->controller(PropertyNumberController::class)
+            ->group(function () {
+                Route::get('property-numbers', 'index')->name('property-numbers.index');
+                Route::put('property-numbers/counter', 'setCounter')->name('property-numbers.counter');
             });
     });
 });

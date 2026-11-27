@@ -112,12 +112,28 @@ return [
     'display_timezone' => env('MMS_DISPLAY_TIMEZONE', 'Asia/Manila'),
 
     'property' => [
-        // UNRESOLVED (flagged in the final flowchart): the briefing says strictly
-        // above 50,000 = PAR + Sub-PAR and at or below = ICS; the flowchart says
-        // PAR is mandatory for equipment and ICS applies from 1,000, below
-        // 1,000 neither applies (remarks required). Step 6.2 waits for MMS.
+        // Step 6.2, PROVISIONAL until MMS answers (the final flowchart flags the PAR and ICS
+        // thresholds as overlapping). Default rule (PHASE-6-PLAN Q4), per UNIT price in pesos:
+        //   equipment above par_threshold ................ PAR + Sub-PAR
+        //   equipment from ics_min_value up to and
+        //   including par_threshold ...................... ICS
+        //   equipment below ics_min_value ................ neither, remarks required
+        //   not equipment ................................ nothing to issue
+        // Changing a number here affects NEW decisions only: every decision stores the thresholds it was made with.
+        // Set 'provisional' to false when MMS has confirmed; the "provisional" notices then disappear.
+        'provisional' => true,
         'par_threshold' => 50000,
         'ics_min_value' => 1000,
+
+        // Number formats: prefix + 2-digit year + hyphen + 4-digit sequence, e.g. PAR-26-0001. The prefixes are a
+        // GUESS (the real forms were not seen); change them here before the first document is issued.
+        'numbering' => [
+            'prefixes' => [
+                'par' => 'PAR-',
+                'sub_par' => 'SPAR-',
+                'ics' => 'ICS-',
+            ],
+        ],
     ],
 
     'iar' => [
@@ -319,6 +335,9 @@ return [
             \App\Models\IarNumber::class => 'IAR number',
             \App\Models\Delivery::class => 'Delivery',
             \App\Models\DeliveryItem::class => 'Delivered item',
+            \App\Models\PropertySeries::class => 'Property series',
+            \App\Models\PropertyDecision::class => 'Property decision',
+            \App\Models\PropertyDocument::class => 'Property document',
         ],
 
         'fields' => [
@@ -370,6 +389,13 @@ return [
             'item' => 'Item',
             'quantity' => 'Quantity',
             'delivered_total_after' => 'Total delivered after',
+            'equipment' => 'Equipment',
+            'category_default' => 'Category says equipment',
+            'rule_band' => 'Rule result',
+            'unit_price' => 'Unit price',
+            'document' => 'Document',
+            'document_number' => 'Number',
+            'sub_par_user' => 'Sub-PAR user',
         ],
 
         'events' => [
@@ -393,6 +419,9 @@ return [
             'iar_number_reserved' => 'IAR number reserved',
             'iar_number_voided' => 'IAR number voided',
             'iar_counter_set' => 'IAR counter set',
+            'property_decided' => 'Equipment decision recorded',
+            'property_document_issued' => 'Property document issued',
+            'property_counter_set' => 'Property counter set',
             'login' => 'Login',
             'login_failed' => 'Failed login',
             'login_blocked' => 'Login blocked',

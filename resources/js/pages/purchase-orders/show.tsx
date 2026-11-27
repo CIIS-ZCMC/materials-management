@@ -270,18 +270,20 @@ export default function PurchaseOrderShow({ purchaseOrder: po }: Props) {
                 {po.review.send_back_reason && <p className="text-sm text-muted-foreground">{po.review.send_back_reason}</p>}
 
                 {/* Tabs: plain buttons, they wrap on a phone instead of scrolling sideways */}
-                <div role="tablist" className="flex flex-wrap gap-1 border-b pb-2">
+                <div role="tablist" className="flex flex-wrap gap-1 rounded-xl border bg-muted/40 p-1">
                     {TABS.map((t) => (
-                        <Button
+                        <button
                             key={t.key}
+                            type="button"
                             role="tab"
                             aria-selected={tab === t.key}
-                            size="sm"
-                            variant={tab === t.key ? 'default' : 'ghost'}
                             onClick={() => setTab(t.key)}
+                            className={`min-h-9 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                                tab === t.key ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:bg-background/60 hover:text-foreground'
+                            }`}
                         >
                             {t.label}
-                        </Button>
+                        </button>
                     ))}
                 </div>
 

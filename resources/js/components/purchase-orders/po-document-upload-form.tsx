@@ -2,6 +2,7 @@ import { router } from '@inertiajs/react';
 import { FolderOpen, Plus, Trash2, Upload, X } from 'lucide-react';
 import { useRef, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
+import { SectionCard } from '@/components/section-card';
 import { Label } from '@/components/ui/label';
 
 // A document type the upload form offers (stage "po", or "delivery" on the delivery page, of the list in config/mms.php).
@@ -24,6 +25,8 @@ type Props = {
     lockedType?: string | null;
     onDone?: () => void;
     onCancel?: () => void;
+    // True when the form already sits inside a card (the delivery page): it then draws a plain inner block instead of its own card.
+    embedded?: boolean;
 };
 
 function formatSize(bytes: number): string {
@@ -38,7 +41,7 @@ function fileKey(file: File): string {
     return `${file.name}|${file.size}|${file.lastModified}`;
 }
 
-export default function PoDocumentUploadForm({ poId, postUrl, types, accept, maxMb, maxFiles, maxTotalMb, isDraft, lockedType = null, onDone, onCancel }: Props) {
+export default function PoDocumentUploadForm({ poId, postUrl, types, accept, maxMb, maxFiles, maxTotalMb, isDraft, lockedType = null, onDone, onCancel, embedded = false }: Props) {
     // React state, all of it only for this form:
     // - "rows" are the type rows with their files (nothing is sent until Upload);
     // - "errors" are the server's messages, keyed like the request: groups.0.type, groups.0.files.1, groups, form;
@@ -130,15 +133,16 @@ export default function PoDocumentUploadForm({ poId, postUrl, types, accept, max
         );
     }
 
-    return (
-        <form onSubmit={submit} className="space-y-3 rounded-md border p-4">
-            <h3 className="text-base font-medium">{lockedType ? `Add files to ${labelOf(lockedType)}` : 'Upload documents'}</h3>
+    const title = lockedType ? `Add files to ${labelOf(lockedType)}` : 'Upload documents';
+
+    const body = (
+        <form onSubmit={submit} className="space-y-4">
 
             {rows.map((row, i) => {
                 const chosenElsewhere = rows.filter((other) => other.id !== row.id).map((other) => other.type);
 
                 return (
-                    <div key={row.id} className="space-y-2 rounded-md border bg-muted/30 p-3">
+                    <div key={row.id} className="space-y-3 rounded-lg border bg-muted/30 p-3">
                         <div className="flex flex-wrap items-end gap-2">
                             <div className="min-w-48 flex-1 space-y-1.5">
                                 <Label htmlFor={`po-doc-type-${row.id}`}>Document type</Label>
@@ -228,7 +232,7 @@ export default function PoDocumentUploadForm({ poId, postUrl, types, accept, max
                 </Button>
             )}
 
-            <p className="text-sm text-muted-foreground">
+            <p className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 PDF, JPG or PNG, up to {maxMb} MB per file, {maxFiles} files and {maxTotalMb} MB in one upload. New files go after the earlier ones; use the
                 arrows to change the order.
                 {isDraft && ' The PO stays a draft, and the PO Reviewer cannot see it, until you click Submit to Reviewer.'}
@@ -250,5 +254,20 @@ export default function PoDocumentUploadForm({ poId, postUrl, types, accept, max
                 )}
             </div>
         </form>
+    );
+
+    if (embedded) {
+        return (
+            <div className="space-y-3 rounded-lg border bg-background p-4">
+                <h4 className="text-sm font-semibold">{title}</h4>
+                {body}
+            </div>
+        );
+    }
+
+    return (
+        <SectionCard title={title} description="Choose a type, then the files for it. Nothing is sent until you click Upload.">
+            {body}
+        </SectionCard>
     );
 }

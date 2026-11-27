@@ -50,8 +50,8 @@ return [
         // Part 3: monitoring and property documents
         'delivery.update-items',      // update delivered quantity per item and date
         'equipment.decide',           // decide whether an item is equipment
-        'par.generate',               // PAR and Sub-PAR (unit price above PHP 50,000)
-        'ics.generate',               // ICS (unit price at or below PHP 50,000)
+        'par.generate',               // PAR and Sub-PAR (equipment, unit price above the PAR threshold; provisional, see config/mms.php property)
+        'ics.generate',               // ICS (equipment, unit price from the ICS minimum up to the PAR threshold; provisional)
 
         // Part 4: DV and Finance
         'dv.review-checklist',        // review the supplier document checklist
@@ -81,12 +81,14 @@ return [
         'roles.manage',               // assign roles, job presets and per-user permissions
         'audit.view',                 // read the audit log
         'iar.manage',                 // Admin: IAR number series, set counters, see voided numbers (step 5.1)
+        'property.manage-numbers',    // Admin: PAR / Sub-PAR / ICS number counters and voided numbers (step 6.2)
         'reports.view',               // dashboard, archive search, exports
     ],
 
     'roles' => [
         'Admin' => [
             'iar.manage',
+            'property.manage-numbers',
             'po.view',
             'po.edit',
             'users.manage',
@@ -218,6 +220,7 @@ return [
         'users' => ['users.manage', 'roles.manage'],
         'audit-log' => ['audit.view'],
         'iar-numbers' => ['iar.manage'],
+        'property-numbers' => ['property.manage-numbers'],
     ],
 
     'retired_permissions' => [

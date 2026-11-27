@@ -11,11 +11,43 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { index } from '@/routes/deliveries';
 
+// The list sends what each delivery carried (active rows only) as delivered_items.
+type ListRow = DeliveryRow & { delivered_items?: { id: number; quantity: string; unit: string | null; description: string | null }[] };
+
+const MAX_SHOWN = 3;
+
+function DeliveredCell({ delivery }: { delivery: ListRow }) {
+    const rows = delivery.delivered_items ?? [];
+
+    if (delivery.status.value === 'voided') {
+        return <span className="text-muted-foreground">Voided</span>;
+    }
+
+    if (rows.length === 0) {
+        return <span className="text-muted-foreground">Not entered yet</span>;
+    }
+
+    return (
+        <ul className="space-y-0.5">
+            {rows.slice(0, MAX_SHOWN).map((row) => (
+                <li key={row.id} className="break-words">
+                    <span className="font-medium tabular-nums">
+                        {row.quantity}
+                        {row.unit ? ` ${row.unit}` : ''}
+                    </span>
+                    <span className="text-muted-foreground"> · {row.description ?? '—'}</span>
+                </li>
+            ))}
+            {rows.length > MAX_SHOWN && <li className="text-xs text-muted-foreground">+{rows.length - MAX_SHOWN} more, open the delivery</li>}
+        </ul>
+    );
+}
+
 type Filters = { search: string; status: string; sort: string; direction: string };
 
 type Props = {
     deliveries: {
-        data: DeliveryRow[];
+        data: ListRow[];
         current_page: number;
         last_page: number;
         total: number;
@@ -34,7 +66,7 @@ const STATUSES = [
     { value: 'voided', label: 'Voided' },
 ];
 
-const columns: ListColumn<DeliveryRow>[] = [
+const columns: ListColumn<ListRow>[] = [
     {
         key: 'iar_number',
         header: 'IAR no.',
@@ -57,6 +89,7 @@ const columns: ListColumn<DeliveryRow>[] = [
             </Link>
         ),
     },
+    { key: 'delivered', header: 'Quantity delivered', card: 'summary', cell: (d) => <DeliveredCell delivery={d} /> },
     { key: 'supplier', header: 'Supplier', cell: (d) => d.purchase_order.supplier ?? '—' },
     { key: 'invoice_no', header: 'Invoice no.', cell: (d) => d.invoice_no },
     { key: 'date_received', header: 'Date received', className: 'tabular-nums', cell: (d) => d.date_received },

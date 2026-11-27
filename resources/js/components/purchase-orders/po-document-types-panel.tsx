@@ -1,4 +1,5 @@
 import { Check } from 'lucide-react';
+import { Notice, SectionCard } from '@/components/section-card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -24,26 +25,36 @@ type Props = {
 };
 
 export default function PoDocumentTypesPanel({ checklist, activeFilter, onFilter, canAdd, onAddFiles }: Props) {
+    const percent = checklist.required_total > 0 ? Math.round((checklist.required_done / checklist.required_total) * 100) : 0;
+
     return (
-        <section className="space-y-2 rounded-md border p-3">
-            <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-base font-medium">Document types</h3>
-                {checklist.is_sample && <Badge variant="outline">Sample list</Badge>}
-            </div>
-
-            <p className="text-sm text-muted-foreground">
-                {checklist.required_total > 0
+        <SectionCard
+            title="Document types"
+            description={
+                checklist.required_total > 0
                     ? `${checklist.required_done} of ${checklist.required_total} required ${checklist.required_total === 1 ? 'type' : 'types'} uploaded.`
-                    : 'No type is required in the list.'}
-                {checklist.missing.length > 0 && ` Missing: ${checklist.missing.join(', ')}. This is information only: you can still submit the PO.`}
-            </p>
+                    : 'No type is required in the list.'
+            }
+            actions={checklist.is_sample && <Badge variant="outline">Sample list</Badge>}
+        >
+            {checklist.required_total > 0 && (
+                <div className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100} aria-label="Required types uploaded">
+                    <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${percent}%` }} />
+                </div>
+            )}
 
-            <ul className="divide-y">
+            {checklist.missing.length > 0 && (
+                <Notice tone="warning">
+                    Missing: {checklist.missing.join(', ')}. This is information only: you can still submit the PO.
+                </Notice>
+            )}
+
+            <ul className="divide-y rounded-lg border bg-background">
                 {checklist.items.map((item) => (
-                    <li key={item.key} className="flex flex-wrap items-center gap-2 py-2 text-sm">
-                        <span className="min-w-0 flex-1 break-words font-medium">{item.label}</span>
+                    <li key={item.key} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+                        <span className="min-w-0 flex-1 font-medium break-words">{item.label}</span>
                         {item.required && <Badge variant="secondary">Required</Badge>}
-                        <span className="tabular-nums text-muted-foreground">
+                        <span className="text-muted-foreground tabular-nums">
                             {item.count} {item.count === 1 ? 'file' : 'files'}
                         </span>
                         {item.required &&
@@ -67,6 +78,6 @@ export default function PoDocumentTypesPanel({ checklist, activeFilter, onFilter
                     </li>
                 ))}
             </ul>
-        </section>
+        </SectionCard>
     );
 }

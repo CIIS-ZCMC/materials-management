@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -84,6 +85,16 @@ class DeliveryItem extends Model
     public function poItem(): BelongsTo
     {
         return $this->belongsTo(PoItem::class, 'po_item_id');
+    }
+
+    /**
+     * The equipment decisions made for this row (step 6.2), voided ones included.
+     *
+     * @return HasMany<PropertyDecision, $this>
+     */
+    public function propertyDecisions(): HasMany
+    {
+        return $this->hasMany(PropertyDecision::class, 'delivery_item_id');
     }
 
     /**

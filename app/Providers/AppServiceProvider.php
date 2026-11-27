@@ -8,6 +8,7 @@ use App\Contracts\ItemCategoryRepositoryInterface;
 use App\Contracts\ItemRepositoryInterface;
 use App\Contracts\PersonnelDirectory;
 use App\Contracts\PersonnelRepositoryInterface;
+use App\Contracts\PropertyRepositoryInterface;
 use App\Contracts\PurchaseOrderProvider;
 use App\Contracts\PurchaseOrderRepositoryInterface;
 use App\Contracts\SupplierRepositoryInterface;
@@ -17,13 +18,17 @@ use App\Integrations\Personnel\LocalPersonnelDirectory;
 use App\Integrations\PurchaseOrders\BizBoxPurchaseOrderProvider;
 use App\Integrations\PurchaseOrders\LocalPurchaseOrderProvider;
 use App\Listeners\AuditAuthEvents;
+use App\Models\PropertyDecision;
+use App\Models\PropertyDocument;
 use App\Models\User;
 use App\Policies\ActivityPolicy;
+use App\Policies\PropertyPolicy;
 use App\Repositories\DeliveryItemRepository;
 use App\Repositories\DeliveryRepository;
 use App\Repositories\ItemCategoryRepository;
 use App\Repositories\ItemRepository;
 use App\Repositories\PersonnelRepository;
+use App\Repositories\PropertyRepository;
 use App\Repositories\PurchaseOrderRepository;
 use App\Repositories\SupplierRepository;
 use App\Repositories\UnitRepository;
@@ -87,6 +92,12 @@ class AppServiceProvider extends ServiceProvider
             DeliveryItemRepository::class,
         );
 
+        // Step 6.2: reads of delivered items for the property pages (pending, done, needs attention).
+        $this->app->bind(
+            PropertyRepositoryInterface::class,
+            PropertyRepository::class,
+        );
+
         // Step 2.3 / 5.0: the personnel directory (decision 4). Today the dummy
         // `personnel` table; Phase 13 swaps LocalPersonnelDirectory for a UMIS class here.
         $this->app->bind(
@@ -128,6 +139,10 @@ class AppServiceProvider extends ServiceProvider
     protected function registerAuditing(): void
     {
         Gate::policy(Activity::class, ActivityPolicy::class);
+
+        // Step 6.2: one policy for both property models (decisions and documents).
+        Gate::policy(PropertyDecision::class, PropertyPolicy::class);
+        Gate::policy(PropertyDocument::class, PropertyPolicy::class);
 
         Event::subscribe(AuditAuthEvents::class);
     }

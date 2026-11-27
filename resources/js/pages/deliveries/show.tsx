@@ -8,6 +8,7 @@ import type { AmountCheck, DeliveryDetail, DeliveryDocumentsData, DeliveryItemsP
 import VoidDeliveryDialog from '@/components/deliveries/void-delivery-dialog';
 import Heading from '@/components/heading';
 import { formatPhp, orDash } from '@/components/purchase-orders/po-format';
+import { Notice, SectionCard } from '@/components/section-card';
 import { Button } from '@/components/ui/button';
 
 type Props = {
@@ -30,7 +31,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 // and the typed Amount is never changed. The server works the numbers out; this only draws them.
 function AmountCheckNote({ check }: { check: AmountCheck }) {
     return (
-        <div className={`rounded-md border px-3 py-2 text-sm ${check.state === 'differs' ? 'border-amber-500/40 bg-amber-500/10' : 'bg-muted/40'}`}>
+        <Notice tone={check.state === 'differs' ? 'warning' : 'muted'}>
             <p>
                 <span className="text-muted-foreground">Value of quantities entered (quantity × unit price): </span>
                 <span className="font-medium tabular-nums">{check.value === null ? '—' : formatPhp(check.value)}</span>
@@ -43,7 +44,7 @@ function AmountCheckNote({ check }: { check: AmountCheck }) {
                     This is only a check; nothing is blocked.
                 </p>
             )}
-        </div>
+        </Notice>
     );
 }
 
@@ -82,39 +83,42 @@ export default function DeliveryShow({ delivery, can, documents, items }: Props)
                 {can.void_reason && !voided && <p className="text-sm text-muted-foreground">{can.void_reason}</p>}
 
                 {voided && (
-                    <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
+                    <Notice tone="danger">
                         <p className="font-medium">Voided</p>
                         <p className="mt-0.5 break-words">{delivery.void_reason ?? 'No reason was recorded.'}</p>
                         <p className="mt-1 text-xs text-muted-foreground">
                             {orDash(delivery.voided_by)} · {orDash(delivery.voided_at)}. The IAR number stays recorded and cannot be used again.
                         </p>
-                    </div>
+                    </Notice>
                 )}
 
-                <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
-                    <Field label="IAR series">{delivery.iar_series.label}</Field>
-                    <Field label="IAR no.">
-                        <span className="tabular-nums">{delivery.iar_number}</span>
-                    </Field>
-                    <Field label="Invoice no.">{delivery.invoice_no}</Field>
-                    <Field label="Fund cluster">{delivery.fund_cluster}</Field>
-                    <Field label="Amount">
-                        <span className="tabular-nums">{formatPhp(delivery.amount)}</span>
-                    </Field>
-                    <Field label="Date received">
-                        <span className="tabular-nums">{delivery.date_received}</span>
-                    </Field>
-                    <Field label="IAR processing deadline">
-                        <span className="tabular-nums">{orDash(delivery.iar_deadline)}</span>
-                        {delivery.iar_overdue && <span className="ml-2 text-sm font-normal text-destructive">Past the deadline, documents still missing</span>}
-                    </Field>
-                    <Field label="Recorded by">{`${orDash(delivery.created_by)}${delivery.created_at ? ` · ${delivery.created_at}` : ''}`}</Field>
-                </dl>
+                {/* 1. Delivery details (with the amount check) */}
+                <SectionCard title="Delivery details" description="What was recorded when this delivery was received.">
+                    <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
+                        <Field label="IAR series">{delivery.iar_series.label}</Field>
+                        <Field label="IAR no.">
+                            <span className="tabular-nums">{delivery.iar_number}</span>
+                        </Field>
+                        <Field label="Invoice no.">{delivery.invoice_no}</Field>
+                        <Field label="Fund cluster">{delivery.fund_cluster}</Field>
+                        <Field label="Amount">
+                            <span className="tabular-nums">{formatPhp(delivery.amount)}</span>
+                        </Field>
+                        <Field label="Date received">
+                            <span className="tabular-nums">{delivery.date_received}</span>
+                        </Field>
+                        <Field label="IAR processing deadline">
+                            <span className="tabular-nums">{orDash(delivery.iar_deadline)}</span>
+                            {delivery.iar_overdue && <span className="ml-2 text-sm font-normal text-destructive">Past the deadline, documents still missing</span>}
+                        </Field>
+                        <Field label="Recorded by">{`${orDash(delivery.created_by)}${delivery.created_at ? ` · ${delivery.created_at}` : ''}`}</Field>
+                    </dl>
 
-                {!voided && <AmountCheckNote check={items.amount_check} />}
+                    {!voided && <AmountCheckNote check={items.amount_check} />}
+                </SectionCard>
 
-                <section className="space-y-2">
-                    <h3 className="text-base font-medium">Signatories</h3>
+                {/* 2. Signatories */}
+                <SectionCard title="Signatories">
                     <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
                         <Field label="Inspectors">
                             {inspectors.length === 0 ? (
@@ -142,12 +146,13 @@ export default function DeliveryShow({ delivery, can, documents, items }: Props)
                             )}
                         </Field>
                     </dl>
-                </section>
+                </SectionCard>
 
-                {/* Step 6.1: delivered quantity per PO line and date (the PO Reviewer's update), with running totals and history.
+                {/* 3. Step 6.1: delivered quantity per PO line (the PO Reviewer's update), with running totals and history.
                     Shown before the documents so the totals are the first thing a Reviewer sees. */}
                 <DeliveryItemsPanel deliveryId={delivery.id} poId={delivery.purchase_order.id} iarNumber={delivery.iar_number} items={items} />
 
+                {/* 4. Documents */}
                 <DeliveryDocumentsPanel deliveryId={delivery.id} poId={delivery.purchase_order.id} status={delivery.status.value} documents={documents} />
             </div>
         </>

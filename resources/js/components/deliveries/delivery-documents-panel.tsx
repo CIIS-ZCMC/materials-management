@@ -4,6 +4,7 @@ import { useRef, useState, type FormEvent } from 'react';
 import type { DeliveryDocumentRow, DeliveryDocumentsData } from '@/components/deliveries/delivery-types';
 import PoDocumentUploadForm from '@/components/purchase-orders/po-document-upload-form';
 import { orDash } from '@/components/purchase-orders/po-format';
+import { Notice, SectionCard, SubSection } from '@/components/section-card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -14,6 +15,7 @@ import { Label } from '@/components/ui/label';
 // React state here: "correction" is the void / replace form that is open (with "reason" and, for replace, the new file),
 // "reopening" is the reopen form, "previewId" is the file shown in a frame, "busy" blocks the buttons while a request runs
 // and "actionError" is the server's message for a button.
+// Layout: ONE card with three titled blocks inside: Required files (checklist), Upload, Uploaded files.
 
 type Props = {
     deliveryId: number;
@@ -110,7 +112,7 @@ export default function DeliveryDocumentsPanel({ deliveryId, poId, status, docum
 
     function renderReasonForm(title: string, help: string, button: string, needsFile: boolean, destructive: boolean) {
         return (
-            <form onSubmit={submitReason} className="space-y-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-4">
+            <form onSubmit={submitReason} className="space-y-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
                 <p className="min-w-0 text-sm font-medium break-words">{title}</p>
                 <p className="text-sm text-muted-foreground">{help}</p>
                 <div className="space-y-1.5">
@@ -128,7 +130,7 @@ export default function DeliveryDocumentsPanel({ deliveryId, poId, status, docum
                 {needsFile && (
                     <div className="space-y-1.5">
                         <Label htmlFor="delivery-doc-replace-file">New file</Label>
-                        <div className="flex flex-wrap items-center gap-3 rounded-md border-2 border-dashed p-3">
+                        <div className="flex flex-wrap items-center gap-3 rounded-md border-2 border-dashed bg-background p-3">
                             <Button type="button" variant="outline" onClick={() => replaceInput.current?.click()}>
                                 <FolderOpen className="size-4" /> Choose file
                             </Button>
@@ -158,16 +160,16 @@ export default function DeliveryDocumentsPanel({ deliveryId, poId, status, docum
     }
 
     return (
-        <section className="space-y-4 rounded-md border p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                    <h3 className="text-base font-medium">Documents</h3>
-                    <p className="text-sm text-muted-foreground">
-                        {checklist.required_done} of {checklist.required_total} required files uploaded.
-                        {documents.pdf_mode === 'when_complete' ? ' The files join the PO\'s combined PDF when the delivery is complete.' : " Each file joins the PO's combined PDF as soon as it is uploaded."}
-                    </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
+        <SectionCard
+            title="Documents"
+            description={
+                <>
+                    {checklist.required_done} of {checklist.required_total} required files uploaded.
+                    {documents.pdf_mode === 'when_complete' ? " The files join the PO's combined PDF when the delivery is complete." : " Each file joins the PO's combined PDF as soon as it is uploaded."}
+                </>
+            }
+            actions={
+                <>
                     {documents.can_view_combined && (
                         <Button asChild size="sm" variant="outline">
                             <a href={`/purchase-orders/${poId}/documents/consolidated`} target="_blank" rel="noopener noreferrer">
@@ -194,33 +196,55 @@ export default function DeliveryDocumentsPanel({ deliveryId, poId, status, docum
                             <RotateCcw className="size-4" /> Reopen for uploading
                         </Button>
                     )}
-                </div>
-            </div>
-
-            {complete && <p className="text-sm text-muted-foreground">All required files are uploaded and the delivery is marked complete. To add a file, reopen it for uploading first.</p>}
+                </>
+            }
+        >
+            {complete && <Notice tone="info">All required files are uploaded and the delivery is marked complete. To add a file, reopen it for uploading first.</Notice>}
             {documents.locked_reason && !complete && <p className="text-sm text-muted-foreground">{documents.locked_reason}</p>}
-            {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+            {actionError && <Notice tone="danger">{actionError}</Notice>}
 
-            {/* The checklist: which required files are there, which are missing, by name. */}
-            <ul className="grid gap-2 sm:grid-cols-2">
-                {checklist.items.map((item) => {
-                    const missing = item.required && item.count === 0;
+            {reopening &&
+                renderReasonForm(
+                    'Reopen this delivery for uploading',
+                    'The delivery goes back to "For uploading" so a file can be added or corrected. Your reason is kept in the audit log.',
+                    'Reopen delivery',
+                    false,
+                    false,
+                )}
 
-                    return (
-                        <li key={item.key} className={`flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm ${missing ? 'border-destructive/40 bg-destructive/5' : ''}`}>
-                            <span className="min-w-0 break-words">
-                                {item.label}
-                                <span className="ml-2 text-xs text-muted-foreground">{item.required ? 'Required' : 'Optional'}</span>
-                            </span>
-                            {missing ? <Badge variant="outline">Missing</Badge> : item.count > 0 ? <Badge variant="secondary">{item.count} uploaded</Badge> : <span className="text-xs text-muted-foreground">None</span>}
-                        </li>
-                    );
-                })}
-            </ul>
-            {!checklist.complete && !voided && <p className="text-sm text-destructive">Missing: {checklist.missing.join(', ')}.</p>}
+            {/* 1. The checklist: which required files are there, which are missing, by name. */}
+            <SubSection title="Required files" description="Each type shows how many files are uploaded.">
+                <ul className="grid gap-2 sm:grid-cols-2">
+                    {checklist.items.map((item) => {
+                        const missing = item.required && item.count === 0;
 
+                        return (
+                            <li
+                                key={item.key}
+                                className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${missing ? 'border-destructive/40 bg-destructive/5' : 'bg-background'}`}
+                            >
+                                <span className="min-w-0 break-words">
+                                    {item.label}
+                                    <span className="ml-2 text-xs text-muted-foreground">{item.required ? 'Required' : 'Optional'}</span>
+                                </span>
+                                {missing ? (
+                                    <Badge variant="outline">Missing</Badge>
+                                ) : item.count > 0 ? (
+                                    <Badge variant="secondary">{item.count} uploaded</Badge>
+                                ) : (
+                                    <span className="text-xs text-muted-foreground">None</span>
+                                )}
+                            </li>
+                        );
+                    })}
+                </ul>
+                {!checklist.complete && !voided && <p className="text-sm text-destructive">Missing: {checklist.missing.join(', ')}.</p>}
+            </SubSection>
+
+            {/* 2. Upload */}
             {documents.can_upload && (
                 <PoDocumentUploadForm
+                    embedded
                     postUrl={base}
                     types={documents.types}
                     accept={documents.accept}
@@ -231,103 +255,118 @@ export default function DeliveryDocumentsPanel({ deliveryId, poId, status, docum
                 />
             )}
 
-            {reopening && renderReasonForm('Reopen this delivery for uploading', 'The delivery goes back to "For uploading" so a file can be added or corrected. Your reason is kept in the audit log.', 'Reopen delivery', false, false)}
+            {/* 3. Uploaded files */}
+            <SubSection title="Uploaded files" description={rows.length > 0 ? `${rows.length} ${rows.length === 1 ? 'file' : 'files'}` : undefined}>
+                {rows.length === 0 ? (
+                    <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">No files uploaded yet.</p>
+                ) : (
+                    <ol className="space-y-3">
+                        {rows.map((d) => {
+                            const active = d.status === 'active';
+                            const isOpen = documents.can_view && previewId === d.id;
+                            const isCorrecting = correction?.id === d.id;
 
-            {rows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No files uploaded yet.</p>
-            ) : (
-                <ol className="space-y-2">
-                    {rows.map((d) => {
-                        const active = d.status === 'active';
-                        const isOpen = documents.can_view && previewId === d.id;
-                        const isCorrecting = correction?.id === d.id;
-
-                        return (
-                            <li key={d.id} className={`space-y-3 rounded-md border p-3 ${isOpen ? 'border-primary/60 bg-muted/20' : ''}`}>
-                                <div className="flex flex-wrap items-start gap-3">
-                                    <div className="min-w-14 rounded-md bg-muted px-2 py-1 text-center text-xs font-medium tabular-nums">
-                                        <span className="block text-muted-foreground">PO PDF page</span>
-                                        {pagesLabel(d)}
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                        <div className="mb-1 flex flex-wrap items-center gap-2">
-                                            {/* The type is the first thing to read: a clear label, so nobody mistakes a DR for an OR or an IAR. */}
-                                            <span className="rounded-md bg-primary px-2.5 py-1 text-sm font-semibold tracking-wide text-primary-foreground">{d.type}</span>
+                            return (
+                                <li key={d.id} className={`space-y-3 rounded-lg border bg-background p-3 ${isOpen ? 'border-primary/60' : ''} ${active ? '' : 'opacity-80'}`}>
+                                    <div className="flex flex-wrap items-start gap-3">
+                                        <div className="min-w-14 rounded-md bg-muted px-2 py-1 text-center text-xs font-medium tabular-nums">
+                                            <span className="block text-muted-foreground">PO PDF page</span>
+                                            {pagesLabel(d)}
                                         </div>
-                                        <p className="text-sm font-medium break-words">{d.original_name}</p>
-                                        <p className="text-xs text-muted-foreground">
-                                            {formatSize(d.size_bytes)} · {orDash(d.uploaded_by)} · {orDash(d.uploaded_at)}
-                                        </p>
-                                        {d.void_reason && <p className="mt-0.5 text-xs text-muted-foreground">Void: {d.void_reason}</p>}
-                                    </div>
-                                    {active ? <Badge variant="secondary">Active</Badge> : <Badge variant="outline">Void</Badge>}
-                                </div>
-
-                                <div className="flex flex-wrap items-center gap-1">
-                                    {documents.can_view && (
-                                        <Button type="button" size="sm" variant={isOpen ? 'default' : 'outline'} onClick={() => setPreviewId(isOpen ? null : d.id)}>
-                                            <Eye className="size-4" /> {isOpen ? 'Hide' : 'View'}
-                                        </Button>
-                                    )}
-                                    {documents.can_void && active && (
-                                        <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="outline"
-                                            disabled={busy}
-                                            onClick={() => {
-                                                closeForms();
-                                                setCorrection({ kind: 'void', id: d.id, name: d.original_name });
-                                            }}
-                                        >
-                                            <Ban className="size-4" /> Void
-                                        </Button>
-                                    )}
-                                    {documents.can_replace && active && (
-                                        <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="outline"
-                                            disabled={busy}
-                                            onClick={() => {
-                                                closeForms();
-                                                setCorrection({ kind: 'replace', id: d.id, name: d.original_name });
-                                            }}
-                                        >
-                                            <RefreshCw className="size-4" /> Replace
-                                        </Button>
-                                    )}
-                                </div>
-
-                                {isCorrecting &&
-                                    correction &&
-                                    (correction.kind === 'void'
-                                        ? renderReasonForm(`Void: ${correction.name}`, complete ? 'The file stays on record with your reason, but its pages leave the combined PDF. If a required file is then missing, the delivery goes back to "For uploading".' : 'The file stays on record with your reason, but its pages leave the combined PDF.', 'Void file', false, true)
-                                        : renderReasonForm(`Replace: ${correction.name}`, 'The old file stays on record with your reason, and the new file takes its place in the combined PDF.', 'Replace file', true, false))}
-
-                                {isOpen && (
-                                    <div className="space-y-2 border-t pt-3">
-                                        <div className="flex flex-wrap items-center justify-between gap-2">
-                                            <p className="text-sm font-medium">Original file</p>
-                                            <div className="flex flex-wrap gap-2">
-                                                <Button asChild size="sm" variant="outline">
-                                                    <a href={`${base}/${d.id}/file`} target="_blank" rel="noopener noreferrer">
-                                                        <ExternalLink className="size-4" /> Open in new tab
-                                                    </a>
-                                                </Button>
-                                                <Button type="button" size="sm" variant="ghost" onClick={() => setPreviewId(null)}>
-                                                    <X className="size-4" /> Close
-                                                </Button>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="mb-1 flex flex-wrap items-center gap-2">
+                                                {/* The type is the first thing to read: a clear label, so nobody mistakes a DR for an OR or an IAR. */}
+                                                <span className="rounded-md bg-primary px-2.5 py-1 text-sm font-semibold tracking-wide text-primary-foreground">{d.type}</span>
                                             </div>
+                                            <p className={`text-sm font-medium break-words ${active ? '' : 'line-through'}`}>{d.original_name}</p>
+                                            <p className="text-xs text-muted-foreground">
+                                                {formatSize(d.size_bytes)} · {orDash(d.uploaded_by)} · {orDash(d.uploaded_at)}
+                                            </p>
+                                            {d.void_reason && <p className="mt-0.5 text-xs text-muted-foreground">Void: {d.void_reason}</p>}
                                         </div>
-                                        <iframe key={d.id} src={`${base}/${d.id}/file`} title={`File ${d.original_name}`} className="h-[70vh] w-full rounded-md border bg-muted" />
+                                        {active ? <Badge variant="secondary">Active</Badge> : <Badge variant="destructive">Void</Badge>}
                                     </div>
-                                )}
-                            </li>
-                        );
-                    })}
-                </ol>
-            )}
-        </section>
+
+                                    <div className="flex flex-wrap items-center gap-1 border-t pt-3">
+                                        {documents.can_view && (
+                                            <Button type="button" size="sm" variant={isOpen ? 'default' : 'outline'} onClick={() => setPreviewId(isOpen ? null : d.id)}>
+                                                <Eye className="size-4" /> {isOpen ? 'Hide' : 'View'}
+                                            </Button>
+                                        )}
+                                        {documents.can_void && active && (
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                disabled={busy}
+                                                onClick={() => {
+                                                    closeForms();
+                                                    setCorrection({ kind: 'void', id: d.id, name: d.original_name });
+                                                }}
+                                            >
+                                                <Ban className="size-4" /> Void
+                                            </Button>
+                                        )}
+                                        {documents.can_replace && active && (
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                disabled={busy}
+                                                onClick={() => {
+                                                    closeForms();
+                                                    setCorrection({ kind: 'replace', id: d.id, name: d.original_name });
+                                                }}
+                                            >
+                                                <RefreshCw className="size-4" /> Replace
+                                            </Button>
+                                        )}
+                                    </div>
+
+                                    {isCorrecting &&
+                                        correction &&
+                                        (correction.kind === 'void'
+                                            ? renderReasonForm(
+                                                  `Void: ${correction.name}`,
+                                                  complete
+                                                      ? 'The file stays on record with your reason, but its pages leave the combined PDF. If a required file is then missing, the delivery goes back to "For uploading".'
+                                                      : 'The file stays on record with your reason, but its pages leave the combined PDF.',
+                                                  'Void file',
+                                                  false,
+                                                  true,
+                                              )
+                                            : renderReasonForm(
+                                                  `Replace: ${correction.name}`,
+                                                  'The old file stays on record with your reason, and the new file takes its place in the combined PDF.',
+                                                  'Replace file',
+                                                  true,
+                                                  false,
+                                              ))}
+
+                                    {isOpen && (
+                                        <div className="space-y-2 border-t pt-3">
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <p className="text-sm font-medium">Original file</p>
+                                                <div className="flex flex-wrap gap-2">
+                                                    <Button asChild size="sm" variant="outline">
+                                                        <a href={`${base}/${d.id}/file`} target="_blank" rel="noopener noreferrer">
+                                                            <ExternalLink className="size-4" /> Open in new tab
+                                                        </a>
+                                                    </Button>
+                                                    <Button type="button" size="sm" variant="ghost" onClick={() => setPreviewId(null)}>
+                                                        <X className="size-4" /> Close
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                            <iframe key={d.id} src={`${base}/${d.id}/file`} title={`File ${d.original_name}`} className="h-[70vh] w-full rounded-md border bg-muted" />
+                                        </div>
+                                    )}
+                                </li>
+                            );
+                        })}
+                    </ol>
+                )}
+            </SubSection>
+        </SectionCard>
     );
 }
